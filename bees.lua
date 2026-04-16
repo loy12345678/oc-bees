@@ -6,106 +6,57 @@ local transposer = component.transposer
 local chest = sides.left
 local apiary = sides.right
 
--- 📢 LOG system
+-- 📢 log system
 local function log(msg)
-  print("[BEE] " .. msg)
+  print("[DEBUG] " .. msg)
 end
 
-local function safeSize(side)
-  return transposer.getInventorySize(side) or 0
-end
+-- 🔍 sprawdza inventory
+local function checkSide(name, side)
+  log("Sprawdzam: " .. name)
 
-function findBee(keyword)
-  log("Skanuję skrzynkę...")
-  local size = safeSize(chest)
+  local size = transposer.getInventorySize(side)
 
-  for i = 1, size do
-    local stack = transposer.getStackInSlot(chest, i)
-    if stack and stack.label and stack.label:find(keyword) then
-      log("Znaleziono: " .. stack.label .. " w slocie " .. i)
-      return i
-    end
+  if not size then
+    log("❌ " .. name .. " = NIE WIDZĘ (nil)")
+    return false
   end
 
-  log("Nie znaleziono: " .. keyword)
-  return nil
-end
-
-function insertBees()
-  log("Wkładanie pszczół...")
-
-  local princess = findBee("Princess") or findBee("Queen")
-  local drone = findBee("Drone")
-
-  if not princess or not drone then
-    log("BRAK pszczół!")
-    return
-  end
-
-  local size = safeSize(apiary)
-  local qSlot, dSlot = nil, nil
-
-  for i = 1, size do
-    if not transposer.getStackInSlot(apiary, i) then
-      if not qSlot then
-        qSlot = i
-      elseif not dSlot then
-        dSlot = i
-        break
-      end
-    end
-  end
-
-  if not qSlot or not dSlot then
-    log("BRAK wolnych slotów!")
-    return
-  end
-
-  transposer.transferItem(chest, apiary, 1, princess, qSlot)
-  transposer.transferItem(chest, apiary, 1, drone, dSlot)
-
-  log("Włożono pszczoły ✔")
-end
-
-function collect()
-  log("Zbieranie outputu...")
-
-  local size = safeSize(apiary)
-
-  for i = 1, size do
-    local stack = transposer.getStackInSlot(apiary, i)
-    if stack then
-      transposer.transferItem(apiary, chest, stack.size, i)
-    end
-  end
-end
-
-function isFree()
-  local size = safeSize(apiary)
-
-  for i = 1, size do
-    local stack = transposer.getStackInSlot(apiary, i)
-    if stack and stack.label and (stack.label:find("Queen") or stack.label:find("Princess")) then
-      return false
-    end
-  end
-
+  log("✔ " .. name .. " widoczny, slotów: " .. size)
   return true
 end
 
--- 🔁 MAIN LOOP
-while true do
-  if isFree() then
-    log("Ul wolny → zbieram")
-    collect()
+-- 🧪 test stacków
+local function scanSide(name, side)
+  log("Skanuję: " .. name)
 
-    os.sleep(2)
+  local size = transposer.getInventorySize(side) or 0
 
-    log("Start nowej hodowli")
-    insertBees()
-  else
-    log("Pszczoły pracują...")
+  for i = 1, size do
+    local stack = transposer.getStackInSlot(side, i)
+
+    if stack then
+      log(name .. " SLOT " .. i .. " -> " .. (stack.label or "UNKNOWN"))
+    end
   end
-
-  os.sleep(10)
 end
+
+-- 🚀 START TESTU
+log("=== START DIAGNOSTYKI ===")
+
+local chestOK = checkSide("CHEST (LEFT)", chest)
+local apiaryOK = checkSide("APIARY (RIGHT)", apiary)
+
+log("-------------------------")
+
+if chestOK then
+  scanSide("CHEST", chest)
+end
+
+log("-------------------------")
+
+if apiaryOK then
+  scanSide("APIARY", apiary)
+end
+
+log("=== KONIEC DIAGNOSTYKI ===")
