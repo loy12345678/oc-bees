@@ -49,6 +49,13 @@ end
 
 local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
 
+-- wylistuj wszystkie dostępne komponenty do debugowania
+local allComponents = {}
+for name, addr in pairs(component.list()) do
+  table.insert(allComponents, name)
+end
+log("Available components: " .. table.concat(allComponents, ", "))
+
 if scanner then
   local avail = {}
   for _, m in ipairs(SCAN_METHODS) do if scanner[m] then table.insert(avail, m) end end
