@@ -22,38 +22,33 @@ local function log(msg)
   print("[BEE] " .. msg)
 end
 
--- opcjonalna integracja z zewnętrznym skanerem (GregTech primary/secondary scanner)
+-- opcjonalna integracja z zewnętrznym skanerem (szukaj poprzez component.list)
 local scanner = nil
 local scanner_name = ""
 
--- szukaj skanera GregTech (primary lub secondary) lub fallback na component.scanner
-if component.primary_scanner then
-  scanner = component.primary_scanner
-  scanner_name = "primary_scanner (GregTech)"
-elseif component.secondary_scanner then
-  scanner = component.secondary_scanner
-  scanner_name = "secondary_scanner (GregTech)"
-elseif component.gt_scanner then
-  scanner = component.gt_scanner
-  scanner_name = "gt_scanner"
-elseif component.scanner then
-  scanner = component.scanner
-  scanner_name = "scanner"
-elseif component.gregtech_scanner then
-  scanner = component.gregtech_scanner
-  scanner_name = "gregtech_scanner"
-elseif component.analyzer then
-  scanner = component.analyzer
-  scanner_name = "analyzer"
-end
-
-local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
-
--- wylistuj wszystkie dostępne komponenty do debugowania
+-- najpierw wylistuj wszystkie dostępne komponenty
 local allComponents = {}
 for name, addr in pairs(component.list()) do
   table.insert(allComponents, name)
 end
+
+-- szukaj skanera w dostępnych komponentach
+local scannerComponent = nil
+for name, addr in pairs(component.list()) do
+  if name:find("scanner") or name:find("analyzer") or name:find("gt") then
+    scannerComponent = name
+    break
+  end
+end
+
+-- spróbuj załadować znaleziony skaner
+if scannerComponent then
+  scanner = component.proxy(component.list(scannerComponent)())
+  scanner_name = scannerComponent
+end
+
+local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
+
 log("Available components: " .. table.concat(allComponents, ", "))
 
 if scanner then
