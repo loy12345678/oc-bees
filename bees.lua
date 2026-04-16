@@ -3,16 +3,13 @@ local sides = require("sides")
 
 local transposer = component.transposer
 
--- USTAWIENIA (ZMIEN JEŚLI TRZEBA)
+-- 🔧 USTAW TO
 local chest = sides.left
 local apiary = sides.right
 
-local SLOT_QUEEN = 1
-local SLOT_DRONE = 2
-
--- znajdź pszczołę w skrzynce
+-- 🧠 znajdź pszczoły w skrzynce
 function findBee(keyword)
-  for i = 1, 100 do
+  for i = 1, transposer.getInventorySize(chest) or 0 do
     local stack = transposer.getStackInSlot(chest, i)
     if stack and stack.label and stack.label:find(keyword) then
       return i
@@ -21,26 +18,32 @@ function findBee(keyword)
   return nil
 end
 
--- wkładanie pszczół
+-- 📥 wkładanie pszczół
 function insertBees()
   local princess = findBee("Princess") or findBee("Queen")
   local drone = findBee("Drone")
 
   if not princess or not drone then
     print("❌ Brak pszczół w skrzynce")
-    return false
+    return
   end
 
-  transposer.transferItem(chest, apiary, 1, princess, SLOT_QUEEN)
-  transposer.transferItem(chest, apiary, 1, drone, SLOT_DRONE)
+  transposer.transferItem(chest, apiary, 1, princess, 1)
+  transposer.transferItem(chest, apiary, 1, drone, 2)
 
   print("🐝 Włożono pszczoły")
-  return true
 end
 
--- zbieranie produktów
+-- 📦 zbieranie bez crashy
 function collect()
-  for i = 3, 12 do
+  local size = transposer.getInventorySize(apiary)
+
+  if not size then
+    print("❌ Nie widzę apiary")
+    return
+  end
+
+  for i = 1, size do
     local stack = transposer.getStackInSlot(apiary, i)
     if stack then
       transposer.transferItem(apiary, chest, stack.size, i)
@@ -48,12 +51,13 @@ function collect()
   end
 end
 
--- sprawdza czy ul jest wolny
+-- 🧪 sprawdza czy ul jest wolny
 function isFree()
-  return transposer.getStackInSlot(apiary, SLOT_QUEEN) == nil
+  local queen = transposer.getStackInSlot(apiary, 1)
+  return queen == nil
 end
 
--- MAIN LOOP
+-- 🔁 MAIN LOOP
 while true do
   if isFree() then
     print("📦 Zbieram output...")
@@ -61,10 +65,10 @@ while true do
 
     os.sleep(2)
 
-    print("🔁 Start nowej hodowli")
+    print("🔁 Nowa hodowla")
     insertBees()
   else
-    print("⏳ Pszczoły pracują...")
+    print("⏳ Pracują pszczoły...")
   end
 
   os.sleep(10)
