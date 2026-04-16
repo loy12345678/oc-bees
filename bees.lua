@@ -366,9 +366,9 @@ local function selectBee(bee_type, targetSpecies)
           log("    SKIP - Odrzucona (purity: " .. purity .. ", score: " .. score .. ")", "SKIP")
         end
       end
-      
-      ::continue::
     end
+    
+    ::continue::
   end
   
   if #candidates == 0 then
