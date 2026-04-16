@@ -671,6 +671,7 @@ local function main()
       extractBees()
       os.sleep(1)
       
+      
       -- Uzupełnij frame'i
       refillFrames()
     else
