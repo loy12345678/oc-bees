@@ -41,7 +41,13 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
       toSlot = curSlot -- próbujemy użyć tej samej pozycji pośrednio
     end
 
-    local ok = t.transferItem(fromSide, toSide, count, curSlot, toSlot)
+    local ok
+    if toSlot == nil then
+      ok = t.transferItem(fromSide, toSide, count, curSlot)
+    else
+      ok = t.transferItem(fromSide, toSide, count, curSlot, toSlot)
+    end
+
     if not ok or ok == 0 then
       return 0
     end
