@@ -128,6 +128,26 @@ local function scanToString(scan)
 end
 
 -- transfer przez łańcuch modułów (próbujemy hopować przez każdy moduł)
+-- bezpieczny wrapper wokół transferItem (chroni pcall i różne sygnatury)
+local function safeTransfer(fromSide, toSide, count, fromSlot, toSlot)
+  local fn = function()
+    if fromSlot and toSlot then
+      return t.transferItem(fromSide, toSide, count, fromSlot, toSlot)
+    elseif fromSlot then
+      return t.transferItem(fromSide, toSide, count, fromSlot)
+    else
+      return t.transferItem(fromSide, toSide, count)
+    end
+  end
+
+  local ok, res = pcall(fn)
+  if not ok then
+    log("ERROR transfer failed: " .. tostring(res))
+    return 0
+  end
+  return res or 0
+end
+
 local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
   if srcIdx == dstIdx then return 0 end
   local step = srcIdx < dstIdx and 1 or -1
@@ -142,54 +162,20 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
     local toSlot = nil
     if (i + step) == dstIdx then
       toSlot = dstSlot
-      -- jeśli cel to skrzynia i nie podano slotu docelowego, spróbuj znaleźć wolny slot
+      -- jeśli celem jest chest i nie mamy docelowego slotu, spróbuj znaleźć wolny
       if toSlot == nil and CHAIN[i + step] == chest then
-        local csize = t.getInventorySize(chest) or 0
-        for s = 1, csize do
-          if not t.getStackInSlot(chest, s) then
-            toSlot = s
-            break
-          end
-        end
-            if not extractMap[i] then
-              local stack = t.getStackInSlot(apiary, i)
-              local label = stack.label
-              if stack and label then
-                local scan = tryScanSlot(i)
-                if scan then
-                  if type(scan) == "table" then
-                    label = scan.displayName or scan.name or label
-                  elseif type(scan) == "string" then
-                    label = scan
-                  end
-                end
-                local l = label:lower()
-                if l:find("queen") or l:find("princess") then
-                  return false
-                end
+        toSlot = findFreeChestSlot()
       end
-      local fn = function()
-        if tslot == nil then
-          return t.transferItem(f, tside, amt, fslot)
-        else
-          return t.transferItem(f, tside, amt, fslot, tslot)
-        end
-      end
-      local ok, res = pcall(fn)
-      if not ok then
-        log("ERROR transfer failed: " .. tostring(res))
-        return 0
-      end
-      return res or 0
     end
 
-    local ok = safeTransfer(fromSide, toSide, count, curSlot, toSlot)
-    if not ok or ok == 0 then
+    local movedNow = safeTransfer(fromSide, toSide, count, curSlot, toSlot)
+    if not movedNow or movedNow == 0 then
       return 0
     end
 
-    moved = ok
-    -- po pierwszym hopie nie znamy dokładnego slotu, ale użyjemy toSlot jeśli ustawione
+    moved = movedNow
+    -- po pierwszym hopie zazwyczaj nie znamy dokładnego slotu w pośrednim transposerze
+    -- więc ustawiamy curSlot na toSlot jeśli został jawnie określony, w przeciwnym razie nil
     curSlot = toSlot
     i = i + step
   end
