@@ -37,6 +37,30 @@ local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItem
 
 log("Available components: " .. table.concat(allComponents, ", "))
 
+-- szukaj skanera w dostępnych komponentach
+local scannerComponent = nil
+for name, addr in pairs(component.list()) do
+  if name:find("scanner") or name:find("analyzer") or name:find("gt") then
+    log("Found scanner candidate: " .. name)
+    scannerComponent = name
+    break
+  end
+end
+
+if scannerComponent then
+  log("Loading scanner: " .. scannerComponent)
+  local addr = component.list(scannerComponent)()
+  scanner = component.proxy(addr)
+  scanner_name = scannerComponent
+  if scanner then
+    log("Scanner loaded successfully")
+  else
+    log("Failed to load scanner proxy")
+  end
+else
+  log("No scanner component found in component.list()")
+end
+
 if scanner then
   local avail = {}
   for _, m in ipairs(SCAN_METHODS) do if scanner[m] then table.insert(avail, m) end end
@@ -216,13 +240,10 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
     local fromSide = CHAIN[i]
     local toSide = CHAIN[i + step]
 
-    local toSlot = nil
-    if (i + step) == dstIdx then
-      toSlot = dstSlot
-      -- jeśli celem jest chest i nie mamy docelowego slotu, spróbuj znaleźć wolny
-      if toSlot == nil and CHAIN[i + step] == chest then
-        toSlot = findFreeChestSlot()
-      end
+    local toSlot = dstSlot
+    -- tylko jeśli zawsze dochodzisz do ostatecznego celu
+    if (i + step) ~= dstIdx then
+      toSlot = nil  -- intermediary hops nie mają określonego slotu docelowego
     end
 
     local movedNow = safeTransfer(fromSide, toSide, count, curSlot, toSlot)
@@ -231,8 +252,6 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
     end
 
     moved = movedNow
-    -- po pierwszym hopie zazwyczaj nie znamy dokładnego slotu w pośrednim transposerze
-    -- więc ustawiamy curSlot na toSlot jeśli został jawnie określony, w przeciwnym razie nil
     curSlot = toSlot
     i = i + step
   end
