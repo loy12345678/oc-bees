@@ -54,7 +54,7 @@ local STATE = {
 -- 📝 LOGGING & UTILITIES
 -- ═══════════════════════════════════════════════════════════════
 
-local LOG_FILE = "/tmp/bee_diagnostic.log"
+local LOG_FILE = "bee_diagnostic.log"
 local log_handle = nil
 
 local function initLogFile()
