@@ -37,6 +37,16 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
     local toSlot = nil
     if (i + step) == dstIdx then
       toSlot = dstSlot
+      -- jeśli cel to skrzynia i nie podano slotu docelowego, spróbuj znaleźć wolny slot
+      if toSlot == nil and CHAIN[i + step] == chest then
+        local csize = t.getInventorySize(chest) or 0
+        for s = 1, csize do
+          if not t.getStackInSlot(chest, s) then
+            toSlot = s
+            break
+          end
+        end
+      end
     else
       toSlot = curSlot -- próbujemy użyć tej samej pozycji pośrednio
     end
