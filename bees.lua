@@ -1,107 +1,159 @@
 local component = require("component")
 local sides = require("sides")
-local event = require("event")
 
-local transposer = component.transposer
+local t = component.transposer
 
 local chest = sides.left
 local apiary = sides.right
 
-local running = true
-
--- 📢 log
 local function log(msg)
   print("[BEE] " .. msg)
 end
 
--- 🛑 listener klawiatury (STOP)
-local function keyListener()
-  while true do
-    local _, _, char, code = event.pull("key_down")
+-- 🔍 sprawdź inventory
+local function check(name, side)
+  local size = t.getInventorySize(side)
 
-    -- ESC = stop
-    if code == 1 then
-      running = false
-      log("🛑 STOP wciśnięty (ESC)")
-      return
+  if not size then
+    log("❌ " .. name .. " NIE WIDZĘ (nil)")
+    return false
+  end
+
+  log("✔ " .. name .. " widoczny, slotów: " .. size)
+  return true
+end
+
+-- 📦 skan inventory
+local function scan(name, side)
+  local size = t.getInventorySize(side) or 0
+
+  log("📦 SKAN: " .. name)
+
+  for i = 1, size do
+    local stack = t.getStackInSlot(side, i)
+    if stack then
+      log(name .. " slot " .. i .. " -> " .. (stack.label or "UNKNOWN") .. " x" .. (stack.size or 0))
     end
   end
 end
 
--- 📦 znajdź pszczoły
+-- 📥 znajdź pszczoły
 local function findBee(keyword)
-  local size = transposer.getInventorySize(chest) or 0
+  local size = t.getInventorySize(chest) or 0
 
   for i = 1, size do
-    local stack = transposer.getStackInSlot(chest, i)
-    if stack and stack.label and stack.label:lower():find(keyword:lower()) then
-      return i
+    local stack = t.getStackInSlot(chest, i)
+
+    if stack and stack.label then
+      if stack.label:lower():find(keyword:lower()) then
+        log("🔎 znaleziono " .. stack.label .. " w slocie " .. i)
+        return i
+      end
     end
   end
 
+  log("❌ brak: " .. keyword)
   return nil
 end
 
--- 📥 wkładanie
+-- 📥 wkładanie pszczół
 local function insertBees()
+  log("📥 wkładam pszczoły")
+
   local princess = findBee("princess") or findBee("queen")
   local drone = findBee("drone")
 
   if not princess or not drone then
-    log("❌ brak pszczół")
+    log("❌ brak pszczół do insert")
     return
   end
 
-  transposer.transferItem(chest, apiary, 1, princess, 1)
-  transposer.transferItem(chest, apiary, 1, drone, 2)
+  local size = t.getInventorySize(apiary) or 0
 
-  log("🐝 włożono pszczoły")
+  local qSlot, dSlot = nil, nil
+
+  for i = 1, size do
+    if not t.getStackInSlot(apiary, i) then
+      if not qSlot then
+        qSlot = i
+      elseif not dSlot then
+        dSlot = i
+        break
+      end
+    end
+  end
+
+  if not qSlot or not dSlot then
+    log("❌ brak wolnych slotów w apiary")
+    return
+  end
+
+  t.transferItem(chest, apiary, 1, princess, qSlot)
+  t.transferItem(chest, apiary, 1, drone, dSlot)
+
+  log("✔ pszczoły włożone")
 end
 
 -- 📦 zbieranie
 local function collect()
-  local size = transposer.getInventorySize(apiary) or 0
+  log("📦 zbieram output")
+
+  local size = t.getInventorySize(apiary) or 0
 
   for i = 1, size do
-    local stack = transposer.getStackInSlot(apiary, i)
+    local stack = t.getStackInSlot(apiary, i)
     if stack then
-      transposer.transferItem(apiary, chest, stack.size, i)
+      t.transferItem(apiary, chest, stack.size, i)
     end
   end
 end
 
--- 🧠 sprawdzenie czy ul wolny
+-- 🧠 czy ul wolny
 local function isFree()
-  local size = transposer.getInventorySize(apiary) or 0
+  local size = t.getInventorySize(apiary) or 0
 
   for i = 1, size do
-    local stack = transposer.getStackInSlot(apiary, i)
-    if stack and (stack.label:lower():find("queen") or stack.label:lower():find("princess")) then
-      return false
+    local stack = t.getStackInSlot(apiary, i)
+
+    if stack and stack.label then
+      if stack.label:lower():find("queen") or stack.label:lower():find("princess") then
+        return false
+      end
     end
   end
 
   return true
 end
 
--- 🚀 start listenera klawiatury
-event.listen("key_down", function(_, _, code)
-  if code == 1 then -- ESC
-    running = false
-    log("🛑 STOP aktywowany")
-  end
-end)
+-- 🚀 START DIAGNOSTYKI
+log("=== START ===")
 
-log("▶ START programu (ESC = STOP)")
+local chestOK = check("CHEST (LEFT)", chest)
+local apiaryOK = check("APIARY (RIGHT)", apiary)
 
--- 🔁 MAIN LOOP
-while running do
+log("------------------")
+
+if chestOK then
+  scan("CHEST", chest)
+end
+
+log("------------------")
+
+if apiaryOK then
+  scan("APIARY", apiary)
+end
+
+log("==================")
+
+-- 🔁 LOOP
+while true do
   if isFree() then
-    log("📦 zbieram")
+    log("📦 wolny ul → zbieram")
     collect()
+
     os.sleep(2)
 
-    log("🔁 nowa hodowla")
+    log("🔁 start nowej hodowli")
     insertBees()
   else
     log("⏳ pszczoły pracują")
@@ -109,5 +161,3 @@ while running do
 
   os.sleep(10)
 end
-
-log("⛔ program zatrzymany")
