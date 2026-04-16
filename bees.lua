@@ -1,115 +1,79 @@
+--[[
+  ╔════════════════════════════════════════════════════════════════╗
+  ║     ZAAWANSOWANY SYSTEM HODOWLI PSZCZÓŁ NA OpenComputers      ║
+  ║                   v2.0 - GTNH Edition                          ║
+  ╚════════════════════════════════════════════════════════════════╝
+  
+  Oparty na przewodniku GTNH Bee Breeding Guide
+  Automatyczne hodowanie, selekcja genetyczna i produkcja
+]]
+
 local component = require("component")
 local sides = require("sides")
-
 local t = component.transposer
 
--- Konfiguracja łańcucha modułów: od skrzyni (index 1) do pasieki (ostatni index).
--- Możesz dodać więcej modułów między skrzynką a pasieką, np. {sides.left, sides.front, sides.right}
-local CHAIN = {sides.left, sides.right}
+-- ═══════════════════════════════════════════════════════════════
+-- ⚙️   KONFIGURACJA
+-- ═══════════════════════════════════════════════════════════════
 
-local chest = CHAIN[1]
-local apiary = CHAIN[#CHAIN]
+local CONFIG = {
+  -- Ustawienie łańcucha urządzeń
+  chain = {sides.left, sides.right},  -- chest -> apiary
+  
+  -- Progi wyboru genetycznego
+  min_score = 50,        -- Minimalna punktacja aby użyć pszczołę
+  fertility_bonus = 30,  -- Bonus do punktu za Fertility ≥3
+  
+  -- Konfiguracja timingu
+  sleep_main_loop = 5,   -- Pauza główna (sekundy)
+  sleep_after_insert = 10, -- Czekanie po włożeniu pszczół
+  sleep_cycle_check = 5,  -- Interwał sprawdzania cyklu
+  
+  -- Frame configuration
+  frame_name = "untreated frame",
+  
+  -- Advanced tracking
+  enable_stats = true,
+  max_generations_tracked = 5,
+}
 
--- Opcjonalna konfiguracja: możesz wskazać konkretne sloty w skrzyni
--- które będą używane jako slot testowy i wolny.
--- Ustaw na nil żeby użyć automatycznego wyszukiwania.
-local TEST_CHEST_SLOT = nil
-local FREE_CHEST_SLOT = nil
+local chest = CONFIG.chain[1]
+local apiary = CONFIG.chain[#CONFIG.chain]
 
-local FRAME = "untreated frame"
+-- State tracking
+local STATE = {
+  cycle_count = 0,
+  best_queen = nil,
+  best_score = -999,
+  queens_produced = 0,
+  products_collected = 0,
+  start_time = os.time(),
+}
 
-local function log(msg)
-  print("[BEE] " .. msg)
+-- ═══════════════════════════════════════════════════════════════
+-- 📝 LOGGING & UTILITIES
+-- ═══════════════════════════════════════════════════════════════
+
+local function log(msg, level)
+  level = level or "INFO"
+  local timestamp = os.date("%H:%M:%S")
+  print(string.format("[%s] [%s] %s", timestamp, level, msg))
 end
 
--- opcjonalna integracja z zewnętrznym skanerem 
--- Jeśli skanera nie ma w systemie, skrypt będzie pracować z label'ami pszczół
-local scanner = nil
-local scanner_name = ""
-
-log("Inicjalizacja bez skanera - będę pracować z label'ami pszczół")
-
-local function tryScan(side, slot)
-  if not scanner then return nil end
-  for _, m in ipairs(SCAN_METHODS) do
-    local fn = scanner[m]
-    if fn then
-      local ok, res = pcall(fn, scanner, side, slot)
-      if not ok then
-        ok, res = pcall(fn, scanner, slot)
-      end
-      if ok and res then
-        return res
-      end
-    end
+local function safePcall(fn, ...)
+  local ok, result = pcall(fn, ...)
+  if not ok then
+    log("ERROR: " .. tostring(result), "ERROR")
+    return nil
   end
-  return nil
+  return result
 end
 
--- skaner dla slotów apairy (historyczna nazwa)
-local function tryScanSlot(slot)
-  return tryScan(apiary, slot)
-end
+-- ═══════════════════════════════════════════════════════════════
+-- 🔧 TRANSFER FUNCTIONS
+-- ═══════════════════════════════════════════════════════════════
 
--- cache wyników skanowania dla skrzyni (slot -> scan string/table)
-local scannedChest = {}
-
--- przescanuj wszystkie nieskanowane pszczoły w skrzyni i zapisz wynik w cached
-local function scanChestUnscanned()
-  if not scanner then
-    return
-  end
-
-  local size = t.getInventorySize(chest) or 0
-  for i = 1, size do
-    if not scannedChest[i] then
-      local stack = t.getStackInSlot(chest, i)
-      if stack and stack.label then
-        local l = stack.label:lower()
-        if l:find("queen") or l:find("princess") or l:find("drone") then
-          local scan = tryScan(chest, i)
-          if scan then
-            local stext = scanToString(scan)
-            scannedChest[i] = stext or true
-          else
-            scannedChest[i] = false
-          end
-        end
-      end
-    end
-  end
-end
-
--- konwertuje wynik skanera (table/string) do jednej tekstowej reprezentacji
-local function scanToString(scan)
-  if not scan then return nil end
-  if type(scan) == "string" then return scan end
-  if type(scan) ~= "table" then return tostring(scan) end
-
-  local parts = {}
-  local function collect(v)
-    if not v then return end
-    if type(v) == "string" then table.insert(parts, v)
-    elseif type(v) == "number" then table.insert(parts, tostring(v))
-    elseif type(v) == "table" then
-      for k, vv in pairs(v) do collect(vv) end
-    else table.insert(parts, tostring(v)) end
-  end
-
-  -- common keys
-  local keys = {"displayName","name","label","genome","genomeText","analyzed","attributes","species"}
-  for _, k in ipairs(keys) do
-    if scan[k] then collect(scan[k]) end
-  end
-
-  -- collect any remaining values
-  for k, v in pairs(scan) do collect(v) end
-
-  return table.concat(parts, " ")
-end
-
--- transfer przez łańcuch modułów (próbujemy hopować przez każdy moduł)
--- bezpieczny wrapper wokół transferItem (chroni pcall i różne sygnatury)
+-- Bezpieczny transfer przez między urządzeniami
 local function safeTransfer(fromSide, toSide, count, fromSlot, toSlot)
   local fn = function()
     if fromSlot and toSlot then
@@ -120,29 +84,64 @@ local function safeTransfer(fromSide, toSide, count, fromSlot, toSlot)
       return t.transferItem(fromSide, toSide, count)
     end
   end
-
-  local ok, res = pcall(fn)
-  if not ok then
-    log("ERROR transfer failed: " .. tostring(res))
-    return 0
-  end
-  return res or 0
+  return safePcall(fn) or 0
 end
 
--- pomocnicze: znajdź slot testowy w skrzyni (nie-pszczeli)
-local function findTestItem()
-  -- jeśli skonfigurowano statyczny slot testowy, użyj go jeśli pasuje
-  if TEST_CHEST_SLOT then
-    local stack = t.getStackInSlot(chest, TEST_CHEST_SLOT)
-    if stack and stack.label then
-      local l = stack.label:lower()
-      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
-        return TEST_CHEST_SLOT
-      end
-    end
-    return nil
+-- Transfer przez łańcuch modułów (hopping)
+local function transferAcrossChain(fromIdx, toIdx, count, fromSlot, toSlot)
+  if fromIdx == toIdx then return 0 end
+  
+  local step = fromIdx < toIdx and 1 or -1
+  local moved = 0
+  local curSlot = fromSlot
+  
+  local i = fromIdx
+  while i ~= toIdx do
+    local fromSide = CONFIG.chain[i]
+    local toSide = CONFIG.chain[i + step]
+    local nextSlot = ((i + step) == toIdx) and toSlot or nil
+    
+    local movedNow = safeTransfer(fromSide, toSide, count, curSlot, nextSlot) or 0
+    if movedNow == 0 then return 0 end
+    
+    moved = movedNow
+    curSlot = nextSlot
+    i = i + step
   end
+  
+  return moved
+end
 
+-- ═══════════════════════════════════════════════════════════════
+-- 🔍 INVENTORY SCANNING
+-- ═══════════════════════════════════════════════════════════════
+
+-- Znajdź item po nazwie w skrzyni
+local function findItemInChest(name)
+  local size = t.getInventorySize(chest) or 0
+  
+  for i = 1, size do
+    local stack = t.getStackInSlot(chest, i)
+    if stack and stack.label and stack.label:lower():find(name:lower()) then
+      return i
+    end
+  end
+  return nil
+end
+
+-- Znajdź wolny slot w skrzyni
+local function findFreeChestSlot()
+  local size = t.getInventorySize(chest) or 0
+  for i = 1, size do
+    if not t.getStackInSlot(chest, i) then
+      return i
+    end
+  end
+  return nil
+end
+
+-- Znajdź niemożliwy do wstawienia przedmiot (do testowania)
+local function findTestItem()
   local size = t.getInventorySize(chest) or 0
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
@@ -153,372 +152,385 @@ local function findTestItem()
       end
     end
   end
-
   return nil
 end
 
-local function findFreeChestSlot()
-  -- jeśli ustawiono statyczny wolny slot, użyj go jeśli jest pusty
-  if FREE_CHEST_SLOT then
-    if not t.getStackInSlot(chest, FREE_CHEST_SLOT) then
-      return FREE_CHEST_SLOT
-    else
-      return nil
-    end
-  end
+-- ═══════════════════════════════════════════════════════════════
+-- 🧬 GENETIC TRAIT SCORING
+-- ═══════════════════════════════════════════════════════════════
 
-  local size = t.getInventorySize(chest) or 0
-  for i = 1, size do
-    if not t.getStackInSlot(chest, i) then
-      return i
-    end
-  end
-  return nil
-end
+--[[
+  Scoring system basedon GTNH Bee Breeding Guide:
+  
+  POSITIVE TRAITS:
+  - Productive (+50)
+  - Fast (+40)
+  - Fertility 3+ (+30 bonus)
+  - Draconic (+200)
+  - Imperial (+120)
+  - Industrious (+80)
+  - Fastest production speed (+60)
+  - Temperature/Humidity tolerance (+20 each)
+  
+  NEGATIVE TRAITS:
+  - Slow (-20)
+  - Genetic Decay (-50)
+  - Infertile/Low fertility (-30)
+]]
 
-local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
-  if srcIdx == dstIdx then return 0 end
-  local step = srcIdx < dstIdx and 1 or -1
-  local moved = 0
-  local curSlot = srcSlot
+local TRAIT_VALUES = {
+  -- Pozytywne cechy
+  productive = 50,
+  fast = 40,
+  draconic = 200,
+  imperial = 120,
+  industrious = 80,
+  fastest = 60,
+  blinding = 70,
+  faster = 30,
+  
+  -- Temperature tolerance
+  ["temperature"] = 20,
+  ["humidity"] = 20,
+  ["tolerant"] = 25,
+  
+  -- Negatywne cechy
+  slow = -20,
+  decay = -50,
+  shortest = -10,
+}
 
-  local i = srcIdx
-  while i ~= dstIdx do
-    local fromSide = CHAIN[i]
-    local toSide = CHAIN[i + step]
-
-    local toSlot = dstSlot
-    -- tylko jeśli zawsze dochodzisz do ostatecznego celu
-    if (i + step) ~= dstIdx then
-      toSlot = nil  -- intermediary hops nie mają określonego slotu docelowego
-    end
-
-    local movedNow = safeTransfer(fromSide, toSide, count, curSlot, toSlot)
-    if not movedNow or movedNow == 0 then
-      return 0
-    end
-
-    moved = movedNow
-    curSlot = toSlot
-    i = i + step
-  end
-
-  return moved
-end
-
--- 🔍 znajdź item w skrzynce
-local function findItem(name)
-  local size = t.getInventorySize(chest) or 0
-
-  for i = 1, size do
-    local stack = t.getStackInSlot(chest, i)
-
-    if stack and stack.label and stack.label:lower():find(name:lower()) then
-      return i
-    end
-  end
-
-  return nil
-end
-
--- 🧬 prosty scoring genów
-local function score(label)
+local function scoreLabel(label)
   local l = label:lower()
-  local s = 0
-
-  if l:find("productive") then s = s + 50 end
-  if l:find("fast") then s = s + 40 end
-  if l:find("draconic") then s = s + 200 end
-  if l:find("imperial") then s = s + 120 end
-  if l:find("industrious") then s = s + 80 end
-
-  if l:find("slow") then s = s - 20 end
-  if l:find("decay") then s = s - 50 end
-
-  return s
+  local score = 0
+  
+  -- Sprawdź każdy trait
+  for trait, value in pairs(TRAIT_VALUES) do
+    if l:find(trait) then
+      score = score + value
+    end
+  end
+  
+  -- Bonus za fertility ≥ 3
+  if l:find("fertility") then
+    if l:find("fertility: 4") or l:find("fertility 4") then
+      score = score + CONFIG.fertility_bonus
+    elseif l:find("fertility: 3") or l:find("fertility 3") then
+      score = score + (CONFIG.fertility_bonus / 2)
+    end
+  end
+  
+  return score
 end
 
--- 🔎 wybór najlepszej pszczoły
-local function findBest(keyword)
+-- ═══════════════════════════════════════════════════════════════
+-- 👑 BEE SELECTION LOGIC
+-- ═══════════════════════════════════════════════════════════════
+
+--[[
+  Selekcja pszczół:
+  1. Szukaj queen lub princess
+  2. Filtruj po MIN_SCORE
+  3. Wybierz najlepszą
+  4. Loguj decyzje
+]]
+
+local function selectBee(bee_type)
+  bee_type = bee_type or "queen"
+  
   local size = t.getInventorySize(chest) or 0
-
-  local bestSlot = nil
-  local bestScore = -999
-  local bestLabel = ""
-
-  -- przeskanuj wczesnie nieskanowane pszczoly w skrzyni
-  scanChestUnscanned()
-
+  local candidates = {}
+  
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
-
-    if stack and stack.label and stack.label:lower():find(keyword:lower()) then
-      -- najpierw sprawdź cache skanera dla tego slotu
-      local scanText = nil
-      if scannedChest[i] and scannedChest[i] ~= false then
-        scanText = scannedChest[i]
-      else
-        -- fallback: spróbuj szybciej zeskanować na żądanie
-        local scan = tryScan(chest, i)
-        scanText = scanToString(scan)
-        if scanText then scannedChest[i] = scanText end
-      end
-
-      local s
-      if scanText and scanText:lower():find(keyword:lower()) then
-        s = score(scanText)
-      else
-        s = score(stack.label)
-      end
-
-      if s > bestScore then
-        bestScore = s
-        bestSlot = i
-        bestLabel = scanText or stack.label
+    
+    if stack and stack.label then
+      local label = stack.label
+      local l = label:lower()
+      
+      -- Sprawdź czy to szukanego typu
+      if l:find(bee_type:lower()) then
+        local score = scoreLabel(label)
+        
+        if score >= CONFIG.min_score then
+          table.insert(candidates, {
+            slot = i,
+            label = label,
+            score = score
+          })
+        else
+          log(string.format("⚠️  ODRZUCONA %s (score: %d < %d): %s", 
+            bee_type, score, CONFIG.min_score, label), "SKIP")
+        end
       end
     end
   end
-
-  if bestSlot then
-    log("WYBRANO: " .. bestLabel .. " (" .. bestScore .. ")")
+  
+  if #candidates == 0 then
+    log(string.format("❌ BRAK %s z score ≥ %d", bee_type, CONFIG.min_score), "WARN")
+    return nil
   end
-
-  return bestSlot
+  
+  -- Sortuj po score (malejąco)
+  table.sort(candidates, function(a, b) return a.score > b.score end)
+  local best = candidates[1]
+  
+  log(string.format("✓ WYBRANO %s (score: %d): %s", 
+    bee_type, best.score, best.label), "SELECT")
+  
+  return best.slot
 end
 
--- 📦 wkładanie pszczół
-local function insert()
-  local queen = findBest("queen") or findBest("princess")
-  local drone = findBest("drone")
+-- ═══════════════════════════════════════════════════════════════
+-- 🐝 APIARY OPERATIONS
+-- ═══════════════════════════════════════════════════════════════
 
-  if not queen or not drone then
-    log("BRAK PSZCZÓŁ")
-    return
+-- Wybierz i włóż pszczoły do apairy
+local function insertBees()
+  log("🔄 Szukam pszczół...", "ACTION")
+  
+  local queen_slot = selectBee("queen") or selectBee("princess")
+  local drone_slot = selectBee("drone")
+  
+  if not queen_slot or not drone_slot then
+    log("❌ Brak dostępnych pszczół!", "ERROR")
+    return false
   end
-
-  local size = t.getInventorySize(apiary) or 0
-  local qSlot, dSlot
-
-  for i = 1, size do
+  
+  -- Znajdź wolne sloty w apairy
+  local apiary_size = t.getInventorySize(apiary) or 0
+  local queen_slot_apiary, drone_slot_apiary
+  
+  for i = 1, apiary_size do
     if not t.getStackInSlot(apiary, i) then
-      if not qSlot then
-        qSlot = i
+      if not queen_slot_apiary then
+        queen_slot_apiary = i
       else
-        dSlot = i
+        drone_slot_apiary = i
         break
       end
     end
   end
-
-  if not qSlot or not dSlot then
-    log("BRAK SLOTÓW")
-    return
-  end
-
-  transferAcrossChain(1, #CHAIN, 1, queen, qSlot)
-  transferAcrossChain(1, #CHAIN, 1, drone, dSlot)
-
-  log("START HODOWLI")
-end
-
--- 📦 zbieranie
-
--- sprawdza czy do danego slotu apairy da się włożyć przedmiot (bez trwalej zmiany)
-local function canInsertToSlot(slot)
-  local testSlot = findTestItem()
-  if not testSlot then
-    log("BRAK PRZEDMIOTU TESTOWEGO W SKRZYNI - nie mogę przetestować slotów")
-    return nil
-  end
-  local stack = t.getStackInSlot(apiary, slot)
-
-  -- gdy slot pusty: spróbuj włożyć testowy przedmiot i od razu cofnąć (przez łańcuch)
-  if not stack then
-    local moved = transferAcrossChain(1, #CHAIN, 1, testSlot, slot)
-    if moved and moved > 0 then
-      transferAcrossChain(#CHAIN, 1, moved, slot)
-      return true
-    else
-      return false
-    end
-  end
-
-  -- gdy slot zajęty: spróbuj wyjąć 1 sztukę do wolnego slotu w skrzyni, a potem włożyć z powrotem
-  local free = findFreeChestSlot()
-  if not free then
-    log("BRAK WOLNEGO SLOTA W SKRZNI - pomijam test dla slotu " .. slot)
-    return nil
-  end
-
-  local extracted = transferAcrossChain(#CHAIN, 1, 1, slot, free)
-  if not extracted or extracted == 0 then
+  
+  if not queen_slot_apiary or not drone_slot_apiary then
+    log("❌ Brak wolnych slotów w apairy", "ERROR")
     return false
   end
-
-  local reinserted = transferAcrossChain(1, #CHAIN, extracted, free, slot)
-  if reinserted and reinserted > 0 then
-    return true
-  else
-    -- jeśli nie udało się włożyć z powrotem, spróbuj przemieścić przedmiot z powrotem gdziekolwiek
-    transferAcrossChain(1, #CHAIN, extracted, free)
-    return false
-  end
-end
-
--- wykryj sloty które da się wyciągnąć ale nie da się włożyć (extract-only)
-local function detectExtractOnlySlots()
-  local size = t.getInventorySize(apiary) or 0
-  local result = {}
-
-  for i = 1, size do
-    local stack = t.getStackInSlot(apiary, i)
-    if stack and stack.label then
-      local label = stack.label
-
-      local canInsert = canInsertToSlot(i)
-      if canInsert == false then
-        table.insert(result, i)
-      elseif canInsert == true then
-        -- slot pozwala na wstawianie
-      else
-        -- fallback: jeśli w slocie są tylko pszczoły, traktuj jako extract-only
-        local l = label:lower()
-        if l:find("queen") or l:find("princess") or l:find("drone") then
-          table.insert(result, i)
-        end
-      end
-    end
-  end
-
-  return result
-end
-
--- 📦 zbieranie (przenosi tylko z slotów extract-only)
-local function collect()
-  local slots = detectExtractOnlySlots()
-  if not slots or #slots == 0 then
-    return
-  end
-
-  for _, i in ipairs(slots) do
-    local stack = t.getStackInSlot(apiary, i)
-    if stack then
-      local label = stack.label
-      local l = label and label:lower() or ""
-      -- jeśli w output jest pszczoła, zabierz ją natychmiast
-      if l:find("queen") or l:find("princess") or l:find("drone") then
-        local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
-        if moved and moved > 0 then
-          log("ZABRANO PSZCZOLE: " .. label)
-        end
-      else
-        transferAcrossChain(#CHAIN, 1, stack.size, i)
-      end
-    end
-  end
-end
-
--- 📤 wyjmowanie pszczół
-local function extractBees()
-  local size = t.getInventorySize(apiary) or 0
-
-  for i = 1, size do
-    local stack = t.getStackInSlot(apiary, i)
-
-    if stack and stack.label then
-      local l = stack.label:lower()
-
-      if l:find("queen") or l:find("princess") or l:find("drone") then
-        transferAcrossChain(#CHAIN, 1, stack.size, i)
-        log("WYJĘTO: " .. stack.label)
-      end
-    end
-  end
-end
-
--- 🧠 czy cykl zakończony
-local function isFree()
-  local size = t.getInventorySize(apiary) or 0
-  -- wykryj sloty extract-only i zignoruj je przy sprawdzaniu "czy wolne"
-  local extractOnly = detectExtractOnlySlots()
-  local extractMap = {}
-  for _, v in ipairs(extractOnly) do extractMap[v] = true end
-
-  for i = 1, size do
-    if not extractMap[i] then
-      local stack = t.getStackInSlot(apiary, i)
-
-      if stack and stack.label then
-        local l = stack.label:lower()
-        if l:find("queen") or l:find("princess") then
-          return false
-        end
-      end
-    end
-  end
-
+  
+  -- Transfer
+  transferAcrossChain(1, #CONFIG.chain, 1, queen_slot, queen_slot_apiary)
+  transferAcrossChain(1, #CONFIG.chain, 1, drone_slot, drone_slot_apiary)
+  
+  log("✓ Pszczoły włożone do apairy", "SUCCESS")
+  STATE.cycle_count = STATE.cycle_count + 1
   return true
 end
 
--- 🧩 refill frames
-local function refillFrames()
-  local size = t.getInventorySize(apiary) or 0
-
-  for i = 1, size do
+-- Zbierz produkty (honeycomb, itp)
+local function collectProducts()
+  local apiary_size = t.getInventorySize(apiary) or 0
+  local collected = 0
+  
+  for i = 1, apiary_size do
     local stack = t.getStackInSlot(apiary, i)
-
-    if not stack then
-      local slot = findItem(FRAME)
-
-      if slot then
-        transferAcrossChain(1, #CHAIN, 1, slot, i)
-        log("➕ frame do slotu " .. i)
-      end
-    end
-  end
-end
-
--- 🔁 LOOP
-log("START SYSTEMU BEE AI")
-
-while true do
-
-  log("pszczoly pracuja")
-
-  if isFree() then
-    log("CYKL ZAKOŃCZONY")
-
-    collect()
-    extractBees()
-
-    os.sleep(2)
-
-    -- usuń produkty (np. honeycomby) z outputów bez przenoszenia pszczół
-    local function extractProducts()
-      local size = t.getInventorySize(apiary) or 0
-      for i = 1, size do
-        local stack = t.getStackInSlot(apiary, i)
-        if stack and stack.label then
-          local l = stack.label:lower()
-          if not (l:find("queen") or l:find("princess") or l:find("drone")) then
-            if l:find("honeycomb") or l:find("honey comb") or l:find(" comb") then
-              local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
-              if moved and moved > 0 then
-                log("ZABRANO PRODUKT: " .. stack.label .. " ze slotu " .. i)
-              else
-                log("NIEUDANE ZABRANIE PRODUKTU: " .. stack.label .. " ze slotu " .. i)
-              end
-            end
+    
+    if stack and stack.label then
+      local l = stack.label:lower()
+      
+      -- Jeśli to produkt (nie pszczoła)
+      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
+        -- Jeśli to honeycomb lub podobny produkt
+        if l:find("comb") or l:find("honey") then
+          local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
+          if moved and moved > 0 then
+            collected = collected + moved
+            log(string.format("📦 Zebrano: %s x%d", stack.label, moved), "PRODUCT")
           end
         end
       end
     end
-
-    extractProducts()
-
-    refillFrames()
-    insert()
   end
+  
+  if collected > 0 then
+    STATE.products_collected = STATE.products_collected + collected
+  end
+  
+  return collected
+end
 
-  os.sleep(5)
+-- Wyciągnij pszczoły z apairy (głównie nowe)
+local function extractBees()
+  local apiary_size = t.getInventorySize(apiary) or 0
+  local extracted = 0
+  
+  for i = 1, apiary_size do
+    local stack = t.getStackInSlot(apiary, i)
+    
+    if stack and stack.label then
+      local l = stack.label:lower()
+      
+      -- Jeśli to pszczoła
+      if l:find("queen") or l:find("princess") or l:find("drone") then
+        local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
+        if moved and moved > 0 then
+          extracted = extracted + moved
+          
+          -- Śledzenie nowych queens
+          if l:find("princess") then
+            STATE.queens_produced = STATE.queens_produced + 1
+          end
+          
+          log(string.format("🐝 Wyjęto: %s x%d", stack.label, moved), "EXTRACT")
+        end
+      end
+    end
+  end
+  
+  return extracted
+end
+
+-- Uzupełnij frame'i
+local function refillFrames()
+  local apiary_size = t.getInventorySize(apiary) or 0
+  local refilled = 0
+  
+  for i = 1, apiary_size do
+    local stack = t.getStackInSlot(apiary, i)
+    
+    if not stack then
+      local frame_slot = findItemInChest(CONFIG.frame_name)
+      
+      if frame_slot then
+        local moved = transferAcrossChain(1, #CONFIG.chain, 1, frame_slot, i)
+        if moved and moved > 0 then
+          refilled = refilled + 1
+          log(string.format("➕ Frame do slotu %d", i), "FRAME")
+        end
+      end
+    end
+  end
+  
+  return refilled
+end
+
+-- Sprawdź czy cykl hodowli zakończony
+local function isCycleComplete()
+  local apiary_size = t.getInventorySize(apiary) or 0
+  
+  for i = 1, apiary_size do
+    local stack = t.getStackInSlot(apiary, i)
+    
+    if stack and stack.label then
+      local l = stack.label:lower()
+      
+      -- Jeśli jest jeszcze queen lub princess, cykl trwa
+      if l:find("queen") or l:find("princess") then
+        return false
+      end
+    end
+  end
+  
+  return true
+end
+
+-- Czekaj na zakończenie cyklu
+local function waitForCycleComplete()
+  log("⏳ Czekanie na koniec cyklu hodowli...", "WAIT")
+  
+  local wait_time = 0
+  while not isCycleComplete() do
+    os.sleep(CONFIG.sleep_cycle_check)
+    wait_time = wait_time + CONFIG.sleep_cycle_check
+    
+    if wait_time % 30 == 0 then
+      log(string.format("⏳ Czekanie... (%d sek)", wait_time), "WAIT")
+    end
+  end
+  
+  log(string.format("✓ Cykl zakończony (~%d sek)", wait_time), "SUCCESS")
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 📊 STATISTICS & REPORTING
+-- ═══════════════════════════════════════════════════════════════
+
+local function printStats()
+  local uptime = os.time() - STATE.start_time
+  local hours = math.floor(uptime / 3600)
+  local mins = math.floor((uptime % 3600) / 60)
+  
+  log("", "STAT")
+  log("╔════════════════════════════════════════════╗", "STAT")
+  log("║       📊 STATYSTYKA HODOWLI PSZCZÓŁ        ║", "STAT")
+  log("╠════════════════════════════════════════════╣", "STAT")
+  log(string.format("║ Czas pracy: %2d:%02d                      ║", hours, mins), "STAT")
+  log(string.format("║ Liczba cykli: %d                         ║", STATE.cycle_count), "STAT")
+  log(string.format("║ Wyprodukowanych queens: %d               ║", STATE.queens_produced), "STAT")
+  log(string.format("║ Zebranych produktów: %d                  ║", STATE.products_collected), "STAT")
+  log("╚════════════════════════════════════════════╝", "STAT")
+  log("", "STAT")
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🎯 MAIN LOOP
+-- ═══════════════════════════════════════════════════════════════
+
+local function main()
+  log("═══════════════════════════════════════════════════════════", "BANNER")
+  log("🐝 ZAAWANSOWANY SYSTEM HODOWLI PSZCZÓŁ - v2.0", "BANNER")
+  log("Oparty na GTNH Bee Breeding Guide", "BANNER")
+  log("═══════════════════════════════════════════════════════════", "BANNER")
+  log("")
+  
+  log(string.format("MIN_SCORE: %d (filtrowanie genetyczne)", CONFIG.min_score), "INFO")
+  log(string.format("FRAME: %s", CONFIG.frame_name), "INFO")
+  log("")
+  
+  local cycle = 0
+  while true do
+    cycle = cycle + 1
+    log(string.format("═══ CYKL %d ═══", cycle), "CYCLE")
+    
+    -- Włóż pszczoły
+    if insertBees() then
+      log(string.format("Czekanie %d sekund na aklimatyzację...", CONFIG.sleep_after_insert), "WAIT")
+      os.sleep(CONFIG.sleep_after_insert)
+      
+      -- Czekaj na koniec cyklu
+      waitForCycleComplete()
+      os.sleep(2)
+      
+      -- Zbierz produkty
+      collectProducts()
+      os.sleep(1)
+      
+      -- Wyciągnij pszczoły
+      extractBees()
+      os.sleep(1)
+      
+      -- Uzupełnij frame'i
+      refillFrames()
+    else
+      log("⚠️  Nie mogę włożyć pszczół - brakuje dostępnych osobników", "WARN")
+      os.sleep(30)
+    end
+    
+    -- Wydrukuj statystyki co 5 cykli
+    if cycle % 5 == 0 then
+      printStats()
+    end
+    
+    log("")
+    os.sleep(CONFIG.sleep_main_loop)
+  end
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🚀 START
+-- ═══════════════════════════════════════════════════════════════
+
+local ok, err = pcall(main)
+if not ok then
+  log("KRYTYCZNY BŁĄD: " .. tostring(err), "FATAL")
+  printStats()
 end
