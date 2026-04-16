@@ -391,7 +391,7 @@ local function selectBee(bee_type, targetSpecies)
             score = score,
             bee = stack
           })
-          log(string.format("    ✓ Zaakceptowana), "ACCEPT")
+          log(string.format("    ✓ Zaakceptowana"), "ACCEPT")
         else
           log(string.format("    ✗ Odrzucona (purity: %d, score: %d)", purity, score), "SKIP")
         end
