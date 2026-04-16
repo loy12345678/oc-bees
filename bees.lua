@@ -22,6 +22,95 @@ local function log(msg)
   print("[BEE] " .. msg)
 end
 
+-- opcjonalna integracja z zewnętrznym skanerem (np. GT)
+local scanner = component.scanner or component.gt_scanner or component.gregtech_scanner or component.analyzer
+
+local function tryScan(side, slot)
+  if not scanner then return nil end
+
+  local tryMethods = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
+  for _, m in ipairs(tryMethods) do
+    local fn = scanner[m]
+    if fn then
+      -- spróbuj różnych sygnatur: (side, slot) lub (slot)
+      local ok, res = pcall(fn, scanner, side, slot)
+      if not ok then
+        ok, res = pcall(fn, scanner, slot)
+      end
+      if ok and res then
+        return res
+      end
+    end
+  end
+
+  return nil
+end
+
+-- skaner dla slotów apairy (historyczna nazwa)
+local function tryScanSlot(slot)
+  return tryScan(apiary, slot)
+end
+
+-- cache wyników skanowania dla skrzyni (slot -> scan string/table)
+local scannedChest = {}
+
+-- przeskanuj wszystkie nieskanowane pszczoły w skrzyni i zapisz wynik w cached
+local function scanChestUnscanned()
+  if not scanner then
+    log("Brak skanera - pomijam skanowanie skrzyni")
+    return
+  end
+
+  local size = t.getInventorySize(chest) or 0
+  for i = 1, size do
+    if not scannedChest[i] then
+      local stack = t.getStackInSlot(chest, i)
+      if stack and stack.label then
+        local l = stack.label:lower()
+        if l:find("queen") or l:find("princess") or l:find("drone") then
+          local scan = tryScan(chest, i)
+          if scan then
+            local stext = scanToString(scan)
+            scannedChest[i] = stext or true
+            log("ZESKANOWANO slot " .. i .. " => " .. (stext or "<dane binarne>"))
+          else
+            scannedChest[i] = false
+            log("BRAK DANYCH SKANERA DLA SLOTA " .. i)
+          end
+        end
+      end
+    end
+  end
+end
+
+-- konwertuje wynik skanera (table/string) do jednej tekstowej reprezentacji
+local function scanToString(scan)
+  if not scan then return nil end
+  if type(scan) == "string" then return scan end
+  if type(scan) ~= "table" then return tostring(scan) end
+
+  local parts = {}
+  local function collect(v)
+    if not v then return end
+    if type(v) == "string" then table.insert(parts, v)
+    elseif type(v) == "number" then table.insert(parts, tostring(v))
+    elseif type(v) == "table" then
+      for k, vv in pairs(v) do collect(vv) end
+    else table.insert(parts, tostring(v)) end
+  end
+
+  -- common keys
+  local keys = {"displayName","name","label","genome","genomeText","analyzed","attributes","species"}
+  for _, k in ipairs(keys) do
+    if scan[k] then collect(scan[k]) end
+  end
+
+  -- collect any remaining values
+  for k, v in pairs(scan) do collect(v) end
+
+  return table.concat(parts, " ")
+end
+
 -- transfer przez łańcuch modułów (próbujemy hopować przez każdy moduł)
 local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
   if srcIdx == dstIdx then return 0 end
@@ -46,15 +135,22 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
             break
           end
         end
-      end
-    else
-      toSlot = curSlot -- próbujemy użyć tej samej pozycji pośrednio
-    end
-
-    -- bezpieczny transfer: waliduj typy i chroń przed wyjątkiem
-    local function safeTransfer(f, tside, amt, fslot, tslot)
-      if not f or not tside or not amt or not fslot then
-        return 0
+            if not extractMap[i] then
+              local stack = t.getStackInSlot(apiary, i)
+              local label = stack.label
+              if stack and label then
+                local scan = tryScanSlot(i)
+                if scan then
+                  if type(scan) == "table" then
+                    label = scan.displayName or scan.name or label
+                  elseif type(scan) == "string" then
+                    label = scan
+                  end
+                end
+                local l = label:lower()
+                if l:find("queen") or l:find("princess") then
+                  return false
+                end
       end
       local fn = function()
         if tslot == nil then
@@ -125,18 +221,37 @@ local function findBest(keyword)
   local bestScore = -999
   local bestLabel = ""
 
+  -- przeskanuj wczesnie nieskanowane pszczoly w skrzyni
+  scanChestUnscanned()
+
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
 
     if stack and stack.label and stack.label:lower():find(keyword:lower()) then
-      local s = score(stack.label)
+      -- najpierw sprawdź cache skanera dla tego slotu
+      local scanText = nil
+      if scannedChest[i] and scannedChest[i] ~= false then
+        scanText = scannedChest[i]
+      else
+        -- fallback: spróbuj szybciej zeskanować na żądanie
+        local scan = tryScan(chest, i)
+        scanText = scanToString(scan)
+        if scanText then scannedChest[i] = scanText end
+      end
 
-      log("TEST " .. stack.label .. " => " .. s)
+      local s
+      if scanText and scanText:lower():find(keyword:lower()) then
+        s = score(scanText)
+        log("SCAN TEST " .. (scanText or stack.label) .. " => " .. s)
+      else
+        s = score(stack.label)
+        log("LABEL TEST " .. stack.label .. " => " .. s)
+      end
 
       if s > bestScore then
         bestScore = s
         bestSlot = i
-        bestLabel = stack.label
+        bestLabel = scanText or stack.label
       end
     end
   end
@@ -281,19 +396,30 @@ local function detectExtractOnlySlots()
   for i = 1, size do
     local stack = t.getStackInSlot(apiary, i)
     if stack and stack.label then
+      -- spróbuj skanera; jeśli dostępny, weź priorytetowo jego wynik
+      local scan = tryScanSlot(i)
+      local label = stack.label
+      if scan then
+        if type(scan) == "table" then
+          label = scan.displayName or scan.name or scan.label or label
+        elseif type(scan) == "string" then
+          label = scan
+        end
+      end
+
       local canInsert = canInsertToSlot(i)
       if canInsert == false then
         table.insert(result, i)
-        log("DETECTED EXTRACT-ONLY SLOT: " .. i .. " (" .. stack.label .. ")")
+        log("DETECTED EXTRACT-ONLY SLOT: " .. i .. " (" .. label .. ")")
       elseif canInsert == true then
         log("SLOT " .. i .. " accepts insertion")
       else
         -- fallback: jeśli detekcja nie powiodła się, ale w slocie są tylko pszczoły,
         -- potraktuj go jako extract-only (to zapobiegnie fałszywemu raportowi "pracują")
-        local l = stack.label:lower()
+        local l = label:lower()
         if l:find("queen") or l:find("princess") or l:find("drone") then
           table.insert(result, i)
-          log("FALLBACK: traktuję slot " .. i .. " jako extract-only (zawiera pszczoły) - " .. stack.label)
+          log("FALLBACK: traktuję slot " .. i .. " jako extract-only (zawiera pszczoły) - " .. label)
         else
           log("SLOT " .. i .. " detection unknown (brak testu lub brak wolnego slotu)")
         end
@@ -315,14 +441,23 @@ local function collect()
   for _, i in ipairs(slots) do
     local stack = t.getStackInSlot(apiary, i)
     if stack then
-      local l = stack.label and stack.label:lower() or ""
+      local scan = tryScanSlot(i)
+      local label = stack.label
+      if scan then
+        if type(scan) == "table" then
+          label = scan.displayName or scan.name or scan.label or label
+        elseif type(scan) == "string" then
+          label = scan
+        end
+      end
+      local l = label and label:lower() or ""
       -- jeśli w output jest pszczoła, zabierz ją natychmiast
       if l:find("queen") or l:find("princess") or l:find("drone") then
         local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
         if not moved or moved == 0 then
           log("TRANSFER PSZCZOL Z SLOTA NIEUDANY " .. i)
         else
-          log("ZABRANO PSZCZOLE: " .. stack.label .. " ze slotu " .. i)
+          log("ZABRANO PSZCZOLE: " .. label .. " ze slotu " .. i)
         end
       else
         local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
