@@ -17,10 +17,8 @@ local t = component.transposer
 -- ═══════════════════════════════════════════════════════════════
 
 local CONFIG = {
-  -- Ustawienie łańcucha urządzeń
-  chain = {sides.left, sides.right},  -- chest -> apiary
+  chain = {sides.left, sides.right},
   
-  -- Genetic weights (na podstawie BreederTron3000)
   geneWeights = {
     ["species"] = 7,
     ["fertility"] = 13,
@@ -37,36 +35,19 @@ local CONFIG = {
     ["effect"] = 1,
   },
   
-  activeBonus = 1.3,  -- Bonus za active vs inactive geny
+  activeBonus = 1.3,
+  min_score = 50,
+  min_purity = 0,
   
-  -- Progi escoloru
-  min_score = 50,  -- Minimalny score do akceptacji
-  min_purity = 0,  -- Minimalny purity (0-2)
-  
-  -- Konfiguracja timingu
-  sleep_main_loop = 5,   -- Pauza główna (sekundy)
-  sleep_after_insert = 10, -- Czekanie po włożeniu pszczół
-  sleep_cycle_check = 1,  -- Interwał sprawdzania cyklu
-  
-  -- Frame configuration
+  sleep_main_loop = 5,
+  sleep_after_insert = 10,
+  sleep_cycle_check = 1,
   frame_name = "untreated frame",
 }
-
--- Oblicz targetSum
-local function calcTargetSum()
-  local sum = 0
-  for _, value in pairs(CONFIG.geneWeights) do
-    sum = sum + value
-  end
-  CONFIG.targetSum = sum + sum * CONFIG.activeBonus - (CONFIG.geneWeights.species * (CONFIG.activeBonus - 1))
-  return CONFIG.targetSum
-end
-calcTargetSum()
 
 local chest = CONFIG.chain[1]
 local apiary = CONFIG.chain[#CONFIG.chain]
 
--- State tracking
 local STATE = {
   cycle_count = 0,
   best_queen = nil,
@@ -77,7 +58,7 @@ local STATE = {
 }
 
 -- ═══════════════════════════════════════════════════════════════
--- 📝 LOGGING & UTILITIES
+-- 📝 LOGGING
 -- ═══════════════════════════════════════════════════════════════
 
 local LOG_FILE = "bee_breeder_v3.log"
@@ -86,9 +67,8 @@ local log_handle = nil
 local function initLogFile()
   log_handle = io.open(LOG_FILE, "w")
   if log_handle then
-    log_handle:write("═══════════════════════════════════════════════════════════\n")
     log_handle:write("BEE BREEDER v3.0 LOG - " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
-    log_handle:write("═══════════════════════════════════════════════════════════\n\n")
+    log_handle:write(string.rep("=", 60) .. "\n\n")
     log_handle:flush()
   end
 end
@@ -111,6 +91,10 @@ local function log(msg, level)
   end
 end
 
+-- ═══════════════════════════════════════════════════════════════
+-- 🔧 TRANSFER FUNCTIONS
+-- ═══════════════════════════════════════════════════════════════
+
 local function safePcall(fn, ...)
   local ok, result = pcall(fn, ...)
   if not ok then
@@ -119,10 +103,6 @@ local function safePcall(fn, ...)
   end
   return result
 end
-
--- ═══════════════════════════════════════════════════════════════
--- 🔧 TRANSFER FUNCTIONS
--- ═══════════════════════════════════════════════════════════════
 
 local function safeTransfer(fromSide, toSide, count, fromSlot, toSlot)
   local fn = function()
@@ -162,10 +142,9 @@ local function transferAcrossChain(fromIdx, toIdx, count, fromSlot, toSlot)
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- 🔍 BEE IDENTIFICATION & SCORING
+-- 🔍 BEE IDENTIFICATION
 -- ═══════════════════════════════════════════════════════════════
 
--- Pobierz nazwę gatunku i typ pszczoły
 local function getBeeName(bee)
   if bee == nil or bee.individual == nil then
     return "UNKNOWN", "UNKNOWN"
@@ -177,21 +156,24 @@ local function getBeeName(bee)
   end
   
   local species = active.species.name
-  
-  -- Określ typ pszczoły z labelu
   local label = bee.label or bee.displayName or ""
   local bee_type = "UNKNOWN"
-  if label:lower():find("queen") then bee_type = "QUEEN"
-  elseif label:lower():find("princess") then bee_type = "PRINCESS"
-  elseif label:lower():find("drone") then bee_type = "DRONE"
+  
+  if label:lower():find("queen") then 
+    bee_type = "QUEEN"
+  elseif label:lower():find("princess") then 
+    bee_type = "PRINCESS"
+  elseif label:lower():find("drone") then 
+    bee_type = "DRONE"
   end
   
   return species, bee_type
 end
 
--- Oblicz purity (czy pszczoła ma właściwy gatunek)
 local function getBeePurity(targetSpecies, bee)
-  if bee == nil or bee.individual == nil then return 0 end
+  if bee == nil or bee.individual == nil then 
+    return 0 
+  end
   
   local purity = 0
   if bee.individual.active.species.name == targetSpecies then
@@ -203,9 +185,10 @@ local function getBeePurity(targetSpecies, bee)
   return purity
 end
 
--- Oblicz genetic score (jak bardzo pszczoła matches target genes)
 local function getGeneticScore(bee, targetGenes, targetSpecies)
-  if bee == nil or bee.individual == nil then return 0 end
+  if bee == nil or bee.individual == nil then 
+    return 0 
+  end
   
   local score = 0
   local active = bee.individual.active
@@ -216,12 +199,10 @@ local function getGeneticScore(bee, targetGenes, targetSpecies)
       local targetValue = targetGenes[gene]
       if targetValue ~= nil then
         
-        -- Species gene - special handling
         if gene == "species" then
           targetValue = {name = targetSpecies}
         end
         
-        -- Table genes (tolerancji, itp)
         if type(targetValue) == "table" and targetValue.name then
           if active.species and active.species.name == targetValue.name then
             score = score + weight * CONFIG.activeBonus
@@ -230,7 +211,6 @@ local function getGeneticScore(bee, targetGenes, targetSpecies)
             score = score + weight
           end
         elseif type(targetValue) == "table" then
-          -- Tolerance ranges, effect properties, etc
           local matchesActive = true
           local matchesInactive = true
           
@@ -250,7 +230,6 @@ local function getGeneticScore(bee, targetGenes, targetSpecies)
             score = score + weight
           end
         else
-          -- Simple genes (numbers, booleans)
           if active[gene] == targetValue then
             score = score + weight * CONFIG.activeBonus
           end
@@ -266,7 +245,7 @@ local function getGeneticScore(bee, targetGenes, targetSpecies)
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- 🔍 INVENTORY SCANNING & DIAGNOSTICS
+-- 🔍 INVENTORY
 -- ═══════════════════════════════════════════════════════════════
 
 local function findItemInChest(name)
@@ -283,17 +262,16 @@ end
 
 local function debugShowAllBees()
   log("", "DEBUG")
-  log("╔═══════════════════════════════════════════════════════════╗", "DEBUG")
-  log("║        📋 DIAGNOSTYKA - WSZYSTKIE PSZCZOŁY W SKRZYNI     ║", "DEBUG")
-  log("╚═══════════════════════════════════════════════════════════╝", "DEBUG")
+  log("DIAGNOSTYKA - WSZYSTKIE PSZCZOLY W SKRZYNI", "DEBUG")
+  log(string.rep("=", 60), "DEBUG")
   
   local size = t.getInventorySize(chest) or 0
   if not size or size == 0 then
-    log("⚠️  Błąd: Nie mogę odczytać rozmiaru skrzyni!", "ERROR")
+    log("Blad: Nie moge odczytac rozmiaru skrzyni", "ERROR")
     return
   end
   
-  log(string.format("📦 Rozmiar skrzyni: %d slotów", size), "DEBUG")
+  log("Rozmiar skrzyni: " .. size .. " slotow", "DEBUG")
   log("", "DEBUG")
   
   local bee_count = 0
@@ -305,45 +283,40 @@ local function debugShowAllBees()
     if stack then
       bee_count = bee_count + 1
       log("", "DEBUG")
-      log(string.format("✅ [BEE #%d - SLOT %d]", bee_count, i), "DEBUG")
-      log(string.rep("─", 60), "DEBUG")
+      log("[BEE #" .. bee_count .. " - SLOT " .. i .. "]", "DEBUG")
+      log(string.rep("-", 60), "DEBUG")
       
-      -- Pokaż label
-      log(string.format("📝 LABEL: %s", stack.label or "(brak)"), "DEBUG")
+      log("LABEL: " .. (stack.label or "(brak)"), "DEBUG")
       
-      -- Sprawdź czy skanowana
       if stack.individual == nil then
-        log("⚠️  STATUS: NIESKANOWANA", "WARN")
+        log("STATUS: NIESKANOWANA", "WARN")
         unscanned = unscanned + 1
       else
         local active = stack.individual.active
-        if active.species then
+        if active and active.species then
           local species = active.species.name
           local purity = getBeePurity(species, stack)
-          log(string.format("✓ GATUNEK: %s (purity: %d/2)", species, purity), "DEBUG")
-          
-          -- Pokaż fertility
-          log(string.format("   Fertility: %s", tostring(active.fertility)), "DEBUG")
-          log(string.format("   Speed: %s", tostring(active.speed)), "DEBUG")
-          log(string.format("   Lifespan: %s", tostring(active.lifespan)), "DEBUG")
+          log("GATUNEK: " .. species .. " (purity: " .. purity .. "/2)", "DEBUG")
+          log("Fertility: " .. tostring(active.fertility), "DEBUG")
+          log("Speed: " .. tostring(active.speed), "DEBUG")
         else
-          log("⚠️  STATUS: SKANOWANA ALE BEZ GATUNKU", "WARN")
+          log("STATUS: SKANOWANA ALE BEZ GATUNKU", "WARN")
         end
       end
       
-      log(string.format("📦 SIZE: %d szt", stack.size or 1), "DEBUG")
+      log("SIZE: " .. (stack.size or 1) .. " szt", "DEBUG")
     end
   end
   
   log("", "DEBUG")
-  log(string.rep("═", 60), "DEBUG")
-  log(string.format("✅ PODSUMOWANIE: %d pszczół (%d nieskanowanych)", bee_count, unscanned), "DEBUG")
-  log(string.rep("═", 60), "DEBUG")
+  log(string.rep("=", 60), "DEBUG")
+  log("PODSUMOWANIE: " .. bee_count .. " pszczol (" .. unscanned .. " nieskanowanych)", "DEBUG")
+  log(string.rep("=", 60), "DEBUG")
   log("", "DEBUG")
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- 👑 BEE SELECTION LOGIC
+-- 👑 BEE SELECTION
 -- ═══════════════════════════════════════════════════════════════
 
 local function selectBee(bee_type, targetSpecies)
@@ -353,7 +326,7 @@ local function selectBee(bee_type, targetSpecies)
   local size = t.getInventorySize(chest) or 0
   local candidates = {}
   
-  log(string.format("🔍 Szukam %s...", bee_type), "SEARCH")
+  log("Szukam " .. bee_type .. "...", "SEARCH")
   
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
@@ -362,25 +335,22 @@ local function selectBee(bee_type, targetSpecies)
       local label = stack.label
       local species, type_detected = getBeeName(stack)
       
-      -- Sprawdź czy to właściwy typ
       if type_detected == bee_type then
         
-        -- Jeśli szukamy konkretnego gatunku
         if targetSpecies and species ~= targetSpecies then
           goto continue
         end
         
-        -- Sprawdzenie czy skanowana
         if stack.individual == nil then
-          log(string.format("  [SLOT %d] %s - NIESKANOWANA", i, label), "SKIP")
+          log("  [SLOT " .. i .. "] " .. label .. " - NIESKANOWANA", "SKIP")
           goto continue
         end
         
         local purity = getBeePurity(species, stack)
         local score = getGeneticScore(stack, stack.individual.active, species)
         
-        log(string.format("  [SLOT %d] %s (%s)", i, species, label), "INFO")
-        log(string.format("    Purity: %d/2 | Score: %d", purity, score), "INFO")
+        log("  [SLOT " .. i .. "] " .. species .. " (" .. label .. ")", "INFO")
+        log("    Purity: " .. purity .. "/2 | Score: " .. score, "INFO")
         
         if purity >= CONFIG.min_purity and score >= CONFIG.min_score then
           table.insert(candidates, {
@@ -391,9 +361,9 @@ local function selectBee(bee_type, targetSpecies)
             score = score,
             bee = stack
           })
-          log(string.format("    ✓ Zaakceptowana"), "ACCEPT")
+          log("    OK - Zaakceptowana", "ACCEPT")
         else
-          log(string.format("    ✗ Odrzucona (purity: %d, score: %d)", purity, score), "SKIP")
+          log("    SKIP - Odrzucona (purity: " .. purity .. ", score: " .. score .. ")", "SKIP")
         end
       end
       
@@ -402,18 +372,19 @@ local function selectBee(bee_type, targetSpecies)
   end
   
   if #candidates == 0 then
-    log(string.format("❌ BRAK %s", bee_type), "WARN")
+    log("BRAK " .. bee_type, "WARN")
     return nil
   end
   
-  -- Sortuj po purity i score
   table.sort(candidates, function(a, b)
-    if a.purity ~= b.purity then return a.purity > b.purity end
+    if a.purity ~= b.purity then 
+      return a.purity > b.purity 
+    end
     return a.score > b.score
   end)
   
   local best = candidates[1]
-  log(string.format("✓ WYBRANO: %s (purity: %d, score: %d)", best.species, best.purity, best.score), "SELECT")
+  log("WYBRANO: " .. best.species .. " (purity: " .. best.purity .. ", score: " .. best.score .. ")", "SELECT")
   log("", "SELECT")
   
   return best.slot
@@ -432,7 +403,6 @@ local function cycleIsDone()
     if stack and stack.label then
       local l = stack.label:lower()
       
-      -- Jeśli jest jeszcze queen lub princess, cykl trwa
       if l:find("queen") or l:find("princess") then
         return false
       end
@@ -443,13 +413,13 @@ local function cycleIsDone()
 end
 
 local function insertBees()
-  log("🔄 Inserting bees into apiary...", "ACTION")
+  log("Wkiadanie pszczol do apairy...", "ACTION")
   
   local queen_slot = selectBee("PRINCESS") or selectBee("QUEEN")
   local drone_slot = selectBee("DRONE")
   
   if not queen_slot or not drone_slot then
-    log("❌ Not enough bees!", "ERROR")
+    log("Brak dostepnych pszczol", "ERROR")
     return false
   end
   
@@ -468,14 +438,14 @@ local function insertBees()
   end
   
   if not queen_slot_apiary or not drone_slot_apiary then
-    log("❌ No free slots in apiary", "ERROR")
+    log("Brak wolnych slotow w apairy", "ERROR")
     return false
   end
   
   transferAcrossChain(1, #CONFIG.chain, 1, queen_slot, queen_slot_apiary)
   transferAcrossChain(1, #CONFIG.chain, 1, drone_slot, drone_slot_apiary)
   
-  log("✓ Bees inserted", "SUCCESS")
+  log("Pszczoły wlozone do apairy", "SUCCESS")
   STATE.cycle_count = STATE.cycle_count + 1
   return true
 end
@@ -495,7 +465,7 @@ local function collectProducts()
           local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
           if moved and moved > 0 then
             collected = collected + moved
-            log(string.format("📦 Collected: %s x%d", stack.label, moved), "PRODUCT")
+            log("Zebrano: " .. stack.label .. " x" .. moved, "PRODUCT")
           end
         end
       end
@@ -528,7 +498,7 @@ local function extractBees()
             STATE.queens_produced = STATE.queens_produced + 1
           end
           
-          log(string.format("🐝 Extracted: %s x%d", stack.label, moved), "EXTRACT")
+          log("Wyjeto: " .. stack.label .. " x" .. moved, "EXTRACT")
         end
       end
     end
@@ -551,7 +521,7 @@ local function refillFrames()
         local moved = transferAcrossChain(1, #CONFIG.chain, 1, frame_slot, i)
         if moved and moved > 0 then
           refilled = refilled + 1
-          log(string.format("➕ Frame added to slot %d", i), "FRAME")
+          log("Frame dodany do slotu " .. i, "FRAME")
         end
       end
     end
@@ -570,43 +540,42 @@ local function printStats()
   local mins = math.floor((uptime % 3600) / 60)
   
   log("", "STAT")
-  log("╔════════════════════════════════════════════╗", "STAT")
-  log("║       📊 STATYSTYKA HODOWLI PSZCZÓŁ        ║", "STAT")
-  log("╠════════════════════════════════════════════╣", "STAT")
-  log(string.format("║ Uptime: %2d:%02d                           ║", hours, mins), "STAT")
-  log(string.format("║ Cycles: %d                              ║", STATE.cycle_count), "STAT")
-  log(string.format("║ Queens Produced: %d                     ║", STATE.queens_produced), "STAT")
-  log(string.format("║ Products Collected: %d                  ║", STATE.products_collected), "STAT")
-  log("╚════════════════════════════════════════════╝", "STAT")
+  log(string.rep("=", 60), "STAT")
+  log("STATYSTYKA HODOWLI", "STAT")
+  log(string.rep("=", 60), "STAT")
+  log("Uptime: " .. hours .. "h " .. mins .. "m", "STAT")
+  log("Cycles: " .. STATE.cycle_count, "STAT")
+  log("Queens Produced: " .. STATE.queens_produced, "STAT")
+  log("Products Collected: " .. STATE.products_collected, "STAT")
+  log(string.rep("=", 60), "STAT")
   log("", "STAT")
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- 🎯 MAIN LOOP
+-- 🎯 MAIN
 -- ═══════════════════════════════════════════════════════════════
 
 local function main()
-  log("═══════════════════════════════════════════════════════════", "BANNER")
-  log("🐝 BEE BREEDER v3.0 - BreederTron Inspired", "BANNER")
-  log("═══════════════════════════════════════════════════════════", "BANNER")
+  log(string.rep("=", 60), "BANNER")
+  log("BEE BREEDER v3.0 - BreederTron Inspired", "BANNER")
+  log(string.rep("=", 60), "BANNER")
   log("", "BANNER")
   
-  -- DIAGNOSTYKA
   debugShowAllBees()
   
-  log("Naciśnij ENTER aby zacząć, lub Ctrl+C aby anulować...", "PROMPT")
+  log("Nacisni ENTER aby zaczac, lub Ctrl+C aby anulowac...", "PROMPT")
   io.read()
   
   local cycle = 0
   while true do
     cycle = cycle + 1
-    log(string.format("═══ CYKL %d ═══", cycle), "CYCLE")
+    log("=== CYKL " .. cycle .. " ===", "CYCLE")
     
     if insertBees() then
-      log(string.format("Waiting %d seconds for acclimatization...", CONFIG.sleep_after_insert), "WAIT")
+      log("Czekanie " .. CONFIG.sleep_after_insert .. " sekund...", "WAIT")
       os.sleep(CONFIG.sleep_after_insert)
       
-      log("Waiting for cycle completion...", "WAIT")
+      log("Czekanie na koniec cyklu...", "WAIT")
       while not cycleIsDone() do
         os.sleep(CONFIG.sleep_cycle_check)
       end
@@ -620,7 +589,7 @@ local function main()
       
       refillFrames()
     else
-      log("⚠️  Not enough bees", "WARN")
+      log("Brak pszczol", "WARN")
       os.sleep(30)
     end
     
@@ -646,4 +615,4 @@ if not ok then
 end
 
 closeLogFile()
-log("✓ LOG SAVED TO: " .. LOG_FILE, "SUCCESS")
+log("LOG ZAPISANY DO: " .. LOG_FILE, "SUCCESS")
