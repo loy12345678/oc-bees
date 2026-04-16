@@ -258,7 +258,15 @@ local function detectExtractOnlySlots()
       elseif canInsert == true then
         log("SLOT " .. i .. " accepts insertion")
       else
-        log("SLOT " .. i .. " detection unknown (brak testu lub brak wolnego slotu)")
+        -- fallback: jeśli detekcja nie powiodła się, ale w slocie są tylko pszczoły,
+        -- potraktuj go jako extract-only (to zapobiegnie fałszywemu raportowi "pracują")
+        local l = stack.label:lower()
+        if l:find("queen") or l:find("princess") or l:find("drone") then
+          table.insert(result, i)
+          log("FALLBACK: traktuję slot " .. i .. " jako extract-only (zawiera pszczoły) - " .. stack.label)
+        else
+          log("SLOT " .. i .. " detection unknown (brak testu lub brak wolnego slotu)")
+        end
       end
     end
   end
