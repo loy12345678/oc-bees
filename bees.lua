@@ -32,10 +32,14 @@ for name, addr in pairs(component.list()) do
   table.insert(allComponents, name)
 end
 
--- szukaj skanera w dostępnych komponentach
+log("Available components: " .. table.concat(allComponents, ", "))
+
+-- szukaj skanera w dostępnych komponentach - wypisz każde sprawdzenie
 local scannerComponent = nil
 for name, addr in pairs(component.list()) do
+  log("Checking component: " .. name .. " (addr: " .. addr .. ")")
   if name:find("scanner") or name:find("analyzer") or name:find("gt") then
+    log("  -> Found potential scanner: " .. name)
     scannerComponent = name
     break
   end
@@ -43,8 +47,16 @@ end
 
 -- spróbuj załadować znaleziony skaner
 if scannerComponent then
+  log("Loading scanner: " .. scannerComponent)
   scanner = component.proxy(component.list(scannerComponent)())
   scanner_name = scannerComponent
+  if scanner then
+    log("Scanner loaded successfully")
+  else
+    log("Failed to load scanner proxy")
+  end
+else
+  log("No scanner component found in component.list()")
 end
 
 local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
