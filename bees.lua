@@ -178,68 +178,182 @@ end
   - Infertile/Low fertility (-30)
 ]]
 
-local TRAIT_VALUES = {
-  -- Pozytywne cechy
-  productive = 50,
-  fast = 40,
-  draconic = 200,
-  imperial = 120,
-  industrious = 80,
-  fastest = 60,
-  blinding = 70,
-  faster = 30,
+-- ═══════════════════════════════════════════════════════════════
+-- 📋 DEBUG FUNCTION - PEŁNA DIAGNOSTYKA WSZYSTKICH PSZCZÓŁ
+-- ═══════════════════════════════════════════════════════════════
+
+local function debugShowAllBees()
+  log("", "DEBUG")
+  log("╔═══════════════════════════════════════════════════════════════╗", "DEBUG")
+  log("║        📋 PEŁNA DIAGNOSTYKA - WSZYSTKIE PSZCZOŁY W SKRZYNI   ║", "DEBUG")
+  log("╚═══════════════════════════════════════════════════════════════╝", "DEBUG")
   
-  -- Temperature tolerance
+  local size = t.getInventorySize(chest) or 0
+  local found = false
+  
+  if size == 0 then
+    log("⚠️  Skrzynia jest pusta!", "WARN")
+    return
+  end
+  
+  log("", "DEBUG")
+  
+  for i = 1, size do
+    local stack = t.getStackInSlot(chest, i)
+    
+    if stack then
+      found = true
+      log(string.rep("═", 67), "DEBUG")
+      log(string.format("SLOT %d:", i), "DEBUG")
+      log(string.rep("═", 67), "DEBUG")
+      
+      -- Pokaż label
+      if stack.label then
+        log(string.format("📝 LABEL (RAW): %s", stack.label), "DEBUG")
+        log(string.format("   (Długość: %d znaków)", string.len(stack.label)), "DEBUG")
+        
+        -- Pokaż każdy character w labelu
+        log("   Znaki: ", "DEBUG")
+        local label_chars = ""
+        for j = 1, string.len(stack.label) do
+          local char = string.sub(stack.label, j, j)
+          local code = string.byte(char)
+          label_chars = label_chars .. string.format("[%d]", code) .. " "
+        end
+        log("   " .. label_chars, "DEBUG")
+      else
+        log("📝 LABEL: (brak)", "DEBUG")
+      end
+      
+      -- Pokaż ilość
+      log(string.format("📦 SIZE: %d szt", stack.size or 1), "DEBUG")
+      
+      -- Pokaż WSZYSTKIE pola stacku
+      log("🔍 WSZYSTKIE POLA STACKU:", "DEBUG")
+      local has_fields = false
+      for key, value in pairs(stack) do
+        has_fields = true
+        local value_str = tostring(value)
+        if type(value) == "boolean" then
+          value_str = value and "true" or "false"
+        elseif type(value) == "table" then
+          value_str = "(table)"
+        end
+        log(string.format("   %s: %s", key, value_str), "DEBUG")
+      end
+      
+      if not has_fields then
+        log("   (brak dodatkowych pól)", "DEBUG")
+      end
+      
+      -- Determine bee type
+      local bee_type = "NIEZNANY"
+      if stack.label then
+        local l = stack.label:lower()
+        if l:find("queen") then bee_type = "QUEEN"
+        elseif l:find("princess") then bee_type = "PRINCESS"
+        elseif l:find("drone") then bee_type = "DRONE"
+        end
+      end
+      log(string.format("🐝 TYP: %s", bee_type), "DEBUG")
+      
+      log("", "DEBUG")
+    end
+  end
+  
+  if not found then
+    log("⚠️  Brak pszczół w skrzyni!", "WARN")
+  end
+  
+  log(string.rep("═", 67), "DEBUG")
+  log("", "DEBUG")
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🧬 GENETIC TRAIT SCORING - Ulepszona wersja
+-- ═══════════════════════════════════════════════════════════════
+
+--[[
+  Nowy system - wyświetla WSZYSTKIE cechy i ich wartości
+  Scoring oparty na faktycznych traitsach z etykiety pszczoły
+]]
+
+local TRAIT_VALUES = {
+  -- Szybkość produkcji
+  ["blinding"] = 70,
+  ["fastest"] = 60,
+  ["faster"] = 30,
+  ["fast"] = 40,
+  
+  -- Fertility (liczba czasu rozmnażania)
+  ["fertility 4"] = 50,
+  ["fertility: 4"] = 50,
+  ["fertility 3"] = 25,
+  ["fertility: 3"] = 25,
+  
+  -- Gatunki vip
+  ["draconic"] = 200,
+  ["imperial"] = 120,
+  ["industrious"] = 80,
+  ["productive"] = 50,
+  
+  -- Tolerancja
+  ["tolerant"] = 25,
   ["temperature"] = 20,
   ["humidity"] = 20,
-  ["tolerant"] = 25,
   
-  -- Negatywne cechy
-  slow = -20,
-  decay = -50,
-  shortest = -10,
+  -- Negatywne
+  ["slow"] = -20,
+  ["decay"] = -50,
+  ["shortest"] = -10,
 }
 
-local function scoreLabel(label)
+local function analyzeBeeFull(label)
   local l = label:lower()
-  local score = 0
+  local results = {}
   
-  -- Sprawdź każdy trait
+  -- Szukaj każdego traita
   for trait, value in pairs(TRAIT_VALUES) do
-    if l:find(trait) then
-      score = score + value
+    if l:find(trait, 1, true) then  -- true = plain text search, nie regex
+      table.insert(results, {
+        trait = trait,
+        value = value,
+        found = true
+      })
     end
   end
   
-  -- Bonus za fertility ≥ 3
-  if l:find("fertility") then
-    if l:find("fertility: 4") or l:find("fertility 4") then
-      score = score + CONFIG.fertility_bonus
-    elseif l:find("fertility: 3") or l:find("fertility 3") then
-      score = score + (CONFIG.fertility_bonus / 2)
-    end
+  return results
+end
+
+local function scoreLabel(label)
+  local traits = analyzeBeeFull(label)
+  local score = 0
+  local detail_str = ""
+  
+  for _, t in ipairs(traits) do
+    score = score + t.value
+    detail_str = detail_str .. string.format("%s(%+d) ", t.trait, t.value)
   end
   
-  return score
+  return score, detail_str
 end
 
 -- ═══════════════════════════════════════════════════════════════
 -- 👑 BEE SELECTION LOGIC
 -- ═══════════════════════════════════════════════════════════════
 
---[[
-  Selekcja pszczół:
-  1. Szukaj queen lub princess
-  2. Filtruj po MIN_SCORE
-  3. Wybierz najlepszą
-  4. Loguj decyzje
-]]
+-- ═══════════════════════════════════════════════════════════════
+-- 👑 BEE SELECTION LOGIC - z pełnym debugowaniem
+-- ═══════════════════════════════════════════════════════════════
 
 local function selectBee(bee_type)
   bee_type = bee_type or "queen"
   
   local size = t.getInventorySize(chest) or 0
   local candidates = {}
+  
+  log(string.format("\n🔍 Szukam %s...", bee_type), "SEARCH")
   
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
@@ -250,17 +364,21 @@ local function selectBee(bee_type)
       
       -- Sprawdź czy to szukanego typu
       if l:find(bee_type:lower()) then
-        local score = scoreLabel(label)
+        local score, traits_detail = scoreLabel(label)
+        
+        log(string.format("  [SLOT %d] %s", i, label), "INFO")
+        log(string.format("    Score: %d | Traits: %s", score, traits_detail), "INFO")
         
         if score >= CONFIG.min_score then
           table.insert(candidates, {
             slot = i,
             label = label,
-            score = score
+            score = score,
+            traits = traits_detail
           })
+          log(string.format("    ✓ Zaakceptowana", score), "ACCEPT")
         else
-          log(string.format("⚠️  ODRZUCONA %s (score: %d < %d): %s", 
-            bee_type, score, CONFIG.min_score, label), "SKIP")
+          log(string.format("    ✗ Odrzucona (score: %d < %d)", score, CONFIG.min_score), "SKIP")
         end
       end
     end
@@ -275,8 +393,10 @@ local function selectBee(bee_type)
   table.sort(candidates, function(a, b) return a.score > b.score end)
   local best = candidates[1]
   
-  log(string.format("✓ WYBRANO %s (score: %d): %s", 
-    bee_type, best.score, best.label), "SELECT")
+  log(string.format("✓ WYBRANO %s (score: %d)", bee_type, best.score), "SELECT")
+  log(string.format("   %s", best.label), "SELECT")
+  log(string.format("   Traits: %s", best.traits), "SELECT")
+  log("", "SELECT")
   
   return best.slot
 end
@@ -485,6 +605,12 @@ local function main()
   log(string.format("MIN_SCORE: %d (filtrowanie genetyczne)", CONFIG.min_score), "INFO")
   log(string.format("FRAME: %s", CONFIG.frame_name), "INFO")
   log("")
+  
+  -- DIAGNOSTYKA - Pokaż wszystkie dostępne pszczoły
+  debugShowAllBees()
+  
+  log("Naciśnij ENTER aby zacząć, lub Ctrl+C aby anulować...", "PROMPT")
+  io.read()
   
   local cycle = 0
   while true do
