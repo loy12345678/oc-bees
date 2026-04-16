@@ -10,6 +10,12 @@ local CHAIN = {sides.left, sides.right}
 local chest = CHAIN[1]
 local apiary = CHAIN[#CHAIN]
 
+-- Opcjonalna konfiguracja: możesz wskazać konkretne sloty w skrzyni
+-- które będą używane jako slot testowy i wolny.
+-- Ustaw na nil żeby użyć automatycznego wyszukiwania.
+local TEST_CHEST_SLOT = nil
+local FREE_CHEST_SLOT = nil
+
 local FRAME = "untreated frame"
 
 local function log(msg)
@@ -150,11 +156,21 @@ end
 -- 📦 zbieranie
 -- pomocnicze: znajdź slot testowy w skrzyni (nie-pszczeli)
 local function findTestItem()
-  local size = t.getInventorySize(chest) or 0
+  -- jeśli skonfigurowano statyczny slot testowy, użyj go jeśli pasuje
+  if TEST_CHEST_SLOT then
+    local stack = t.getStackInSlot(chest, TEST_CHEST_SLOT)
+    if stack and stack.label then
+      local l = stack.label:lower()
+      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
+        return TEST_CHEST_SLOT
+      end
+    end
+    return nil
+  end
 
+  local size = t.getInventorySize(chest) or 0
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
-
     if stack and stack.label then
       local l = stack.label:lower()
       if not (l:find("queen") or l:find("princess") or l:find("drone")) then
@@ -167,6 +183,15 @@ local function findTestItem()
 end
 
 local function findFreeChestSlot()
+  -- jeśli ustawiono statyczny wolny slot, użyj go jeśli jest pusty
+  if FREE_CHEST_SLOT then
+    if not t.getStackInSlot(chest, FREE_CHEST_SLOT) then
+      return FREE_CHEST_SLOT
+    else
+      return nil
+    end
+  end
+
   local size = t.getInventorySize(chest) or 0
   for i = 1, size do
     if not t.getStackInSlot(chest, i) then
@@ -230,6 +255,10 @@ local function detectExtractOnlySlots()
       if canInsert == false then
         table.insert(result, i)
         log("DETECTED EXTRACT-ONLY SLOT: " .. i .. " (" .. stack.label .. ")")
+      elseif canInsert == true then
+        log("SLOT " .. i .. " accepts insertion")
+      else
+        log("SLOT " .. i .. " detection unknown (brak testu lub brak wolnego slotu)")
       end
     end
   end
