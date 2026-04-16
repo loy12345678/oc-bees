@@ -54,10 +54,36 @@ local STATE = {
 -- 📝 LOGGING & UTILITIES
 -- ═══════════════════════════════════════════════════════════════
 
+local LOG_FILE = "/tmp/bee_diagnostic.log"
+local log_handle = nil
+
+local function initLogFile()
+  log_handle = io.open(LOG_FILE, "w")
+  if log_handle then
+    log_handle:write("═══════════════════════════════════════════════════════════\n")
+    log_handle:write("BEE DIAGNOSTIC LOG - " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
+    log_handle:write("═══════════════════════════════════════════════════════════\n\n")
+    log_handle:flush()
+  end
+end
+
+local function closeLogFile()
+  if log_handle then
+    log_handle:close()
+  end
+end
+
 local function log(msg, level)
   level = level or "INFO"
   local timestamp = os.date("%H:%M:%S")
-  print(string.format("[%s] [%s] %s", timestamp, level, msg))
+  local formatted = string.format("[%s] [%s] %s", timestamp, level, msg)
+  print(formatted)
+  
+  -- Zapisz do pliku
+  if log_handle then
+    log_handle:write(formatted .. "\n")
+    log_handle:flush()
+  end
 end
 
 local function safePcall(fn, ...)
@@ -272,8 +298,9 @@ local function debugShowAllBees()
   
   log("", "DEBUG")
   log(string.rep("═", 67), "DEBUG")
-  log(string.format("PODSUMOWANIE: Znaleziono %d pszczół", bee_count), "DEBUG")
+  log(string.format("✅ PODSUMOWANIE: Znaleziono %d pszczół", bee_count), "DEBUG")
   log(string.rep("═", 67), "DEBUG")
+  log(string.format("📝 Cała diagnostyka zapisana do: %s", LOG_FILE), "DEBUG")
   log("", "DEBUG")
 end
 
@@ -604,11 +631,15 @@ end
 -- ═══════════════════════════════════════════════════════════════
 
 local function main()
+  initLogFile()
+  
   log("═══════════════════════════════════════════════════════════", "BANNER")
   log("🐝 ZAAWANSOWANY SYSTEM HODOWLI PSZCZÓŁ - v2.0", "BANNER")
   log("Oparty na GTNH Bee Breeding Guide", "BANNER")
   log("═══════════════════════════════════════════════════════════", "BANNER")
-  log("")
+  log("", "BANNER")
+  log(string.format("📝 LOG ZAPISYWANY DO: %s", LOG_FILE), "BANNER")
+  log("", "BANNER")
   
   log(string.format("MIN_SCORE: %d (filtrowanie genetyczne)", CONFIG.min_score), "INFO")
   log(string.format("FRAME: %s", CONFIG.frame_name), "INFO")
@@ -654,7 +685,7 @@ local function main()
       printStats()
     end
     
-    log("")
+    log("", "INFO")
     os.sleep(CONFIG.sleep_main_loop)
   end
 end
@@ -668,3 +699,6 @@ if not ok then
   log("KRYTYCZNY BŁĄD: " .. tostring(err), "FATAL")
   printStats()
 end
+
+closeLogFile()
+log("✓ LOG ZAPISANY DO: " .. LOG_FILE, "SUCCESS")
