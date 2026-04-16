@@ -3,63 +3,31 @@ local sides = require("sides")
 
 local t = component.transposer
 
-local chest = sides.left
-local apiary = sides.right
-
 local function log(msg)
-  print("[BEE] " .. msg)
+  print("[SIDE-DEBUG] " .. msg)
 end
 
--- 🔧 TEST STARTU
-log("START PROGRAMU")
+log("=== START TESTU STRON TRANSPOSERA ===")
 
--- 🧪 TEST: czy w ogóle działa Lua
-log("Lua działa ✔")
+-- 🔍 test wszystkich stron 0–5
+for i = 0, 5 do
+  local size = t.getInventorySize(i)
 
--- 🔌 TEST INVENTORY
-local function testSide(name, side)
-  local size = t.getInventorySize(side)
+  if size then
+    log("✔ SIDE " .. i .. " = INVENTORY, slotów: " .. size)
 
-  if not size then
-    log(name .. " = ❌ NIE WIDZĘ (nil)")
-    return false
-  end
+    -- pokazujemy co jest w środku
+    for slot = 1, size do
+      local stack = t.getStackInSlot(i, slot)
 
-  log(name .. " = ✔ widzę, slotów: " .. size)
-  return true
-end
-
-local chestOK = testSide("CHEST (LEFT)", chest)
-local apiaryOK = testSide("APIARY (RIGHT)", apiary)
-
--- 📦 SKAN
-local function scan(name, side)
-  log("SKAN: " .. name)
-
-  local size = t.getInventorySize(side) or 0
-  local found = false
-
-  for i = 1, size do
-    local stack = t.getStackInSlot(side, i)
-
-    if stack then
-      found = true
-      log(name .. " slot " .. i .. " -> " .. (stack.label or "UNKNOWN") .. " x" .. (stack.size or 0))
+      if stack then
+        log("  SLOT " .. slot .. " -> " .. (stack.label or "UNKNOWN") .. " x" .. (stack.size or 0))
+      end
     end
-  end
 
-  if not found then
-    log(name .. " -> pusty / brak widocznych itemów")
+  else
+    log("❌ SIDE " .. i .. " = brak inventory")
   end
 end
-
-if chestOK then scan("CHEST", chest) end
-if apiaryOK then scan("APIARY", apiary) end
 
 log("=== KONIEC TESTU ===")
-
--- 🔁 minimalny loop (żeby widzieć że żyje)
-while true do
-  log("tick...")
-  os.sleep(5)
-end
