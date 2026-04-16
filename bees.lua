@@ -22,15 +22,37 @@ local function log(msg)
   print("[BEE] " .. msg)
 end
 
--- opcjonalna integracja z zewnętrznym skanerem (np. GT)
-local scanner = component.scanner or component.gt_scanner or component.gregtech_scanner or component.analyzer
+-- opcjonalna integracja z zewnętrznym skanerem (GregTech primary/secondary scanner)
+local scanner = nil
+local scanner_name = ""
+
+-- szukaj skanera GregTech (primary lub secondary) lub fallback na component.scanner
+if component.primary_scanner then
+  scanner = component.primary_scanner
+  scanner_name = "primary_scanner (GregTech)"
+elseif component.secondary_scanner then
+  scanner = component.secondary_scanner
+  scanner_name = "secondary_scanner (GregTech)"
+elseif component.gt_scanner then
+  scanner = component.gt_scanner
+  scanner_name = "gt_scanner"
+elseif component.scanner then
+  scanner = component.scanner
+  scanner_name = "scanner"
+elseif component.gregtech_scanner then
+  scanner = component.gregtech_scanner
+  scanner_name = "gregtech_scanner"
+elseif component.analyzer then
+  scanner = component.analyzer
+  scanner_name = "analyzer"
+end
 
 local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
 
 if scanner then
   local avail = {}
   for _, m in ipairs(SCAN_METHODS) do if scanner[m] then table.insert(avail, m) end end
-  log("Scanner detected: " .. tostring(scanner) .. "; available methods: " .. (next(avail) and table.concat(avail, ", ") or "(none)"))
+  log("Scanner detected: " .. scanner_name .. " (" .. tostring(scanner) .. "); available methods: " .. (next(avail) and table.concat(avail, ", ") or "(none)"))
 else
   log("No scanner component detected (scanner=nil)")
 end
