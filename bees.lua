@@ -51,13 +51,27 @@ local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
       toSlot = curSlot -- próbujemy użyć tej samej pozycji pośrednio
     end
 
-    local ok
-    if toSlot == nil then
-      ok = t.transferItem(fromSide, toSide, count, curSlot)
-    else
-      ok = t.transferItem(fromSide, toSide, count, curSlot, toSlot)
+    -- bezpieczny transfer: waliduj typy i chroń przed wyjątkiem
+    local function safeTransfer(f, tside, amt, fslot, tslot)
+      if not f or not tside or not amt or not fslot then
+        return 0
+      end
+      local fn = function()
+        if tslot == nil then
+          return t.transferItem(f, tside, amt, fslot)
+        else
+          return t.transferItem(f, tside, amt, fslot, tslot)
+        end
+      end
+      local ok, res = pcall(fn)
+      if not ok then
+        log("ERROR transfer failed: " .. tostring(res))
+        return 0
+      end
+      return res or 0
     end
 
+    local ok = safeTransfer(fromSide, toSide, count, curSlot, toSlot)
     if not ok or ok == 0 then
       return 0
     end
