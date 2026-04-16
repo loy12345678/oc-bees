@@ -21,7 +21,7 @@ local CONFIG = {
   chain = {sides.left, sides.right},  -- chest -> apiary
   
   -- Progi wyboru genetycznego
-  min_score = 50,        -- Minimalna punktacja aby użyć pszczołę
+  min_score = 0,         -- TYMCZASOWO 0 - do testów (zmień na 50 gdy znajdziesz traity)
   fertility_bonus = 30,  -- Bonus do punktu za Fertility ≥3
   
   -- Konfiguracja timingu
@@ -191,25 +191,30 @@ local function debugShowAllBees()
   local size = t.getInventorySize(chest) or 0
   local found = false
   
-  if size == 0 then
-    log("⚠️  Skrzynia jest pusta!", "WARN")
+  if not size or size == 0 then
+    log("⚠️  Błąd: Nie mogę odczytać rozmiaru skrzyni!", "ERROR")
     return
   end
   
+  log(string.format("📦 Rozmiar skrzyni: %d slotów", size), "DEBUG")
+  log(string.format("🔍 Skanowanie slotów...", size), "DEBUG")
   log("", "DEBUG")
+  
+  local bee_count = 0
   
   for i = 1, size do
     local stack = t.getStackInSlot(chest, i)
     
     if stack then
+      bee_count = bee_count + 1
       found = true
-      log(string.rep("═", 67), "DEBUG")
-      log(string.format("SLOT %d:", i), "DEBUG")
-      log(string.rep("═", 67), "DEBUG")
+      log("", "DEBUG")
+      log(string.format("✅ [BEE #%d na SLOT %d]", bee_count, i), "DEBUG")
+      log(string.rep("─", 67), "DEBUG")
       
       -- Pokaż label
       if stack.label then
-        log(string.format("📝 LABEL (RAW): %s", stack.label), "DEBUG")
+        log(string.format("📝 LABEL: %s", stack.label), "DEBUG")
         log(string.format("   (Długość: %d znaków)", string.len(stack.label)), "DEBUG")
         
         -- Pokaż każdy character w labelu
@@ -265,6 +270,9 @@ local function debugShowAllBees()
     log("⚠️  Brak pszczół w skrzyni!", "WARN")
   end
   
+  log("", "DEBUG")
+  log(string.rep("═", 67), "DEBUG")
+  log(string.format("PODSUMOWANIE: Znaleziono %d pszczół", bee_count), "DEBUG")
   log(string.rep("═", 67), "DEBUG")
   log("", "DEBUG")
 end
