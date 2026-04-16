@@ -336,6 +336,29 @@ while true do
 
     os.sleep(2)
 
+    -- usuń produkty (np. honeycomby) z outputów bez przenoszenia pszczół
+    local function extractProducts()
+      local size = t.getInventorySize(apiary) or 0
+      for i = 1, size do
+        local stack = t.getStackInSlot(apiary, i)
+        if stack and stack.label then
+          local l = stack.label:lower()
+          if not (l:find("queen") or l:find("princess") or l:find("drone")) then
+            if l:find("honeycomb") or l:find("honey comb") or l:find(" comb") then
+              local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
+              if moved and moved > 0 then
+                log("ZABRANO PRODUKT: " .. stack.label .. " ze slotu " .. i)
+              else
+                log("NIEUDANE ZABRANIE PRODUKTU: " .. stack.label .. " ze slotu " .. i)
+              end
+            end
+          end
+        end
+      end
+    end
+
+    extractProducts()
+
     refillFrames()
     insert()
   end
