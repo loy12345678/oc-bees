@@ -25,24 +25,40 @@ end
 -- opcjonalna integracja z zewnętrznym skanerem (np. GT)
 local scanner = component.scanner or component.gt_scanner or component.gregtech_scanner or component.analyzer
 
+local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
+
+if scanner then
+  local avail = {}
+  for _, m in ipairs(SCAN_METHODS) do if scanner[m] then table.insert(avail, m) end end
+  log("Scanner detected: " .. tostring(scanner) .. "; available methods: " .. (next(avail) and table.concat(avail, ", ") or "(none)"))
+else
+  log("No scanner component detected (scanner=nil)")
+end
+
 local function tryScan(side, slot)
   if not scanner then return nil end
-
-  local tryMethods = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
-  for _, m in ipairs(tryMethods) do
+  for _, m in ipairs(SCAN_METHODS) do
+    log("tryScan: trying method '" .. m .. "' on slot " .. tostring(slot))
     local fn = scanner[m]
-    if fn then
+    if not fn then
+      log("tryScan: method '" .. m .. "' not present on scanner")
+    else
       -- spróbuj różnych sygnatur: (side, slot) lub (slot)
       local ok, res = pcall(fn, scanner, side, slot)
       if not ok then
+        log("tryScan: method '" .. m .. "' raised, retrying with (slot) signature")
         ok, res = pcall(fn, scanner, slot)
       end
       if ok and res then
+        log("tryScan: method '" .. m .. "' returned data for slot " .. tostring(slot))
         return res
+      else
+        log("tryScan: method '" .. m .. "' returned no data for slot " .. tostring(slot))
       end
     end
   end
 
+  log("tryScan: no method produced data for slot " .. tostring(slot))
   return nil
 end
 
