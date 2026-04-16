@@ -288,14 +288,20 @@ end
 -- 🧠 czy cykl zakończony
 local function isFree()
   local size = t.getInventorySize(apiary) or 0
+  -- wykryj sloty extract-only i zignoruj je przy sprawdzaniu "czy wolne"
+  local extractOnly = detectExtractOnlySlots()
+  local extractMap = {}
+  for _, v in ipairs(extractOnly) do extractMap[v] = true end
 
   for i = 1, size do
-    local stack = t.getStackInSlot(apiary, i)
+    if not extractMap[i] then
+      local stack = t.getStackInSlot(apiary, i)
 
-    if stack and stack.label then
-      local l = stack.label:lower()
-      if l:find("queen") or l:find("princess") then
-        return false
+      if stack and stack.label then
+        local l = stack.label:lower()
+        if l:find("queen") or l:find("princess") then
+          return false
+        end
       end
     end
   end
