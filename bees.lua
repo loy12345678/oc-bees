@@ -30,33 +30,7 @@ local scanner_name = ""
 local allComponents = {}
 for name, addr in pairs(component.list()) do
   table.insert(allComponents, name)
-end
-
-log("Available components: " .. table.concat(allComponents, ", "))
-
--- szukaj skanera w dostępnych komponentach - wypisz każde sprawdzenie
-local scannerComponent = nil
-for name, addr in pairs(component.list()) do
-  log("Checking component: " .. name .. " (addr: " .. addr .. ")")
-  if name:find("scanner") or name:find("analyzer") or name:find("gt") then
-    log("  -> Found potential scanner: " .. name)
-    scannerComponent = name
-    break
-  end
-end
-
--- spróbuj załadować znaleziony skaner
-if scannerComponent then
-  log("Loading scanner: " .. scannerComponent)
-  scanner = component.proxy(component.list(scannerComponent)())
-  scanner_name = scannerComponent
-  if scanner then
-    log("Scanner loaded successfully")
-  else
-    log("Failed to load scanner proxy")
-  end
-else
-  log("No scanner component found in component.list()")
+  log(name .. " : " .. addr)
 end
 
 local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
@@ -182,6 +156,53 @@ local function safeTransfer(fromSide, toSide, count, fromSlot, toSlot)
     return 0
   end
   return res or 0
+end
+
+-- pomocnicze: znajdź slot testowy w skrzyni (nie-pszczeli)
+local function findTestItem()
+  -- jeśli skonfigurowano statyczny slot testowy, użyj go jeśli pasuje
+  if TEST_CHEST_SLOT then
+    local stack = t.getStackInSlot(chest, TEST_CHEST_SLOT)
+    if stack and stack.label then
+      local l = stack.label:lower()
+      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
+        return TEST_CHEST_SLOT
+      end
+    end
+    return nil
+  end
+
+  local size = t.getInventorySize(chest) or 0
+  for i = 1, size do
+    local stack = t.getStackInSlot(chest, i)
+    if stack and stack.label then
+      local l = stack.label:lower()
+      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
+        return i
+      end
+    end
+  end
+
+  return nil
+end
+
+local function findFreeChestSlot()
+  -- jeśli ustawiono statyczny wolny slot, użyj go jeśli jest pusty
+  if FREE_CHEST_SLOT then
+    if not t.getStackInSlot(chest, FREE_CHEST_SLOT) then
+      return FREE_CHEST_SLOT
+    else
+      return nil
+    end
+  end
+
+  local size = t.getInventorySize(chest) or 0
+  for i = 1, size do
+    if not t.getStackInSlot(chest, i) then
+      return i
+    end
+  end
+  return nil
 end
 
 local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
@@ -337,52 +358,6 @@ local function insert()
 end
 
 -- 📦 zbieranie
--- pomocnicze: znajdź slot testowy w skrzyni (nie-pszczeli)
-local function findTestItem()
-  -- jeśli skonfigurowano statyczny slot testowy, użyj go jeśli pasuje
-  if TEST_CHEST_SLOT then
-    local stack = t.getStackInSlot(chest, TEST_CHEST_SLOT)
-    if stack and stack.label then
-      local l = stack.label:lower()
-      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
-        return TEST_CHEST_SLOT
-      end
-    end
-    return nil
-  end
-
-  local size = t.getInventorySize(chest) or 0
-  for i = 1, size do
-    local stack = t.getStackInSlot(chest, i)
-    if stack and stack.label then
-      local l = stack.label:lower()
-      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
-        return i
-      end
-    end
-  end
-
-  return nil
-end
-
-local function findFreeChestSlot()
-  -- jeśli ustawiono statyczny wolny slot, użyj go jeśli jest pusty
-  if FREE_CHEST_SLOT then
-    if not t.getStackInSlot(chest, FREE_CHEST_SLOT) then
-      return FREE_CHEST_SLOT
-    else
-      return nil
-    end
-  end
-
-  local size = t.getInventorySize(chest) or 0
-  for i = 1, size do
-    if not t.getStackInSlot(chest, i) then
-      return i
-    end
-  end
-  return nil
-end
 
 -- sprawdza czy do danego slotu apairy da się włożyć przedmiot (bez trwalej zmiany)
 local function canInsertToSlot(slot)
