@@ -16,6 +16,39 @@ local function log(msg)
   print("[BEE] " .. msg)
 end
 
+-- transfer przez łańcuch modułów (próbujemy hopować przez każdy moduł)
+local function transferAcrossChain(srcIdx, dstIdx, count, srcSlot, dstSlot)
+  if srcIdx == dstIdx then return 0 end
+  local step = srcIdx < dstIdx and 1 or -1
+  local moved = 0
+  local curSlot = srcSlot
+
+  local i = srcIdx
+  while i ~= dstIdx do
+    local fromSide = CHAIN[i]
+    local toSide = CHAIN[i + step]
+
+    local toSlot = nil
+    if (i + step) == dstIdx then
+      toSlot = dstSlot
+    else
+      toSlot = curSlot -- próbujemy użyć tej samej pozycji pośrednio
+    end
+
+    local ok = t.transferItem(fromSide, toSide, count, curSlot, toSlot)
+    if not ok or ok == 0 then
+      return 0
+    end
+
+    moved = ok
+    -- po pierwszym hopie nie znamy dokładnego slotu, ale użyjemy toSlot jeśli ustawione
+    curSlot = toSlot
+    i = i + step
+  end
+
+  return moved
+end
+
 -- 🔍 znajdź item w skrzynce
 local function findItem(name)
   local size = t.getInventorySize(chest) or 0
@@ -108,8 +141,8 @@ local function insert()
     return
   end
 
-  t.transferItem(chest, apiary, 1, queen, qSlot)
-  t.transferItem(chest, apiary, 1, drone, dSlot)
+  transferAcrossChain(1, #CHAIN, 1, queen, qSlot)
+  transferAcrossChain(1, #CHAIN, 1, drone, dSlot)
 
   log("START HODOWLI")
 end
@@ -215,9 +248,20 @@ local function collect()
   for _, i in ipairs(slots) do
     local stack = t.getStackInSlot(apiary, i)
     if stack then
-      local moved = t.transferItem(apiary, chest, stack.size, i)
-      if not moved or moved == 0 then
-        log("TRANSFER NIEUDANY Z SLOTA " .. i)
+      local l = stack.label and stack.label:lower() or ""
+      -- jeśli w output jest pszczoła, zabierz ją natychmiast
+      if l:find("queen") or l:find("princess") or l:find("drone") then
+        local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
+        if not moved or moved == 0 then
+          log("TRANSFER PSZCZOL Z SLOTA NIEUDANY " .. i)
+        else
+          log("ZABRANO PSZCZOLE: " .. stack.label .. " ze slotu " .. i)
+        end
+      else
+        local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
+        if not moved or moved == 0 then
+          log("TRANSFER NIEUDANY Z SLOTA " .. i)
+        end
       end
     end
   end
@@ -234,7 +278,7 @@ local function extractBees()
       local l = stack.label:lower()
 
       if l:find("queen") or l:find("princess") or l:find("drone") then
-        t.transferItem(apiary, chest, stack.size, i)
+        transferAcrossChain(#CHAIN, 1, stack.size, i)
         log("WYJĘTO: " .. stack.label)
       end
     end
@@ -270,7 +314,7 @@ local function refillFrames()
       local slot = findItem(FRAME)
 
       if slot then
-        t.transferItem(chest, apiary, 1, slot, i)
+        transferAcrossChain(1, #CHAIN, 1, slot, i)
         log("➕ frame do slotu " .. i)
       end
     end
