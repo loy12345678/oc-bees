@@ -104,7 +104,7 @@ end
 -- cache wyników skanowania dla skrzyni (slot -> scan string/table)
 local scannedChest = {}
 
--- przeskanuj wszystkie nieskanowane pszczoły w skrzyni i zapisz wynik w cached
+-- przescanuj wszystkie nieskanowane pszczoły w skrzyni i zapisz wynik w cached
 local function scanChestUnscanned()
   if not scanner then
     log("Brak skanera - pomijam skanowanie skrzyni")
@@ -118,14 +118,52 @@ local function scanChestUnscanned()
       if stack and stack.label then
         local l = stack.label:lower()
         if l:find("queen") or l:find("princess") or l:find("drone") then
+          -- spróbuj zeskanować bezpośrednio ze skrzyni
           local scan = tryScan(chest, i)
           if scan then
             local stext = scanToString(scan)
             scannedChest[i] = stext or true
             log("ZESKANOWANO slot " .. i .. " => " .. (stext or "<dane binarne>"))
           else
-            scannedChest[i] = false
-            log("BRAK DANYCH SKANERA DLA SLOTA " .. i)
+            -- bezpośrednie skanowanie nie zadziałało, spróbuj przenieść pszczołę do skanera
+            log("Nie mogę zeskanować bezpośrednio, przenoszę pszczołę do skanera...")
+            local scanner_side = sides.back
+            
+            -- przenieś pszczołę do skanera
+            local moved = safeTransfer(chest, scanner_side, 1, i)
+            if moved and moved > 0 then
+              log("Przeniesiono pszczołę do skanera, czekam na skan...")
+              os.sleep(0.5)
+              
+              -- teraz spróbuj zeskanować ze strony skanera
+              scan = tryScan(scanner_side, 1)
+              if scan then
+                local stext = scanToString(scan)
+                scannedChest[i] = stext or true
+                log("ZESKANOWANO (ze skanera) slot " .. i .. " => " .. (stext or "<dane binarne>"))
+              else
+                scannedChest[i] = false
+                log("BRAK DANYCH SKANERA DLA SLOTA " .. i .. " (nawet w skanerze)")
+              end
+              
+              -- przenieś pszczołę z powrotem do skrzyni - do tego samego slotu jeśli możliwe
+              local returned = safeTransfer(scanner_side, chest, 1, 1, i)
+              if returned and returned > 0 then
+                log("Zwrócono pszczołę do slotu " .. i)
+              else
+                -- jeśli slot zajęty, włóż do pierwszego wolnego
+                local free = findFreeChestSlot()
+                if free then
+                  safeTransfer(scanner_side, chest, 1, 1, free)
+                  log("Zwrócono pszczołę do slotu " .. free .. " (oryginalny zajęty)")
+                else
+                  log("BŁĄD: nie mogę zwrócić pszczoły - brak wolnego slotu!")
+                end
+              end
+            else
+              scannedChest[i] = false
+              log("BRAK DANYCH SKANERA DLA SLOTA " .. i)
+            end
           end
         end
       end
