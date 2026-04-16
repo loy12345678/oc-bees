@@ -27,46 +27,42 @@ local scanner = nil
 local scanner_name = ""
 
 -- najpierw wylistuj wszystkie dostępne komponenty
-local allComponents = {}
+log("=== DOSTĘPNE KOMPONENTY ===")
 for name, addr in pairs(component.list()) do
-  table.insert(allComponents, name)
-  log(name .. " : " .. addr)
+  log(name .. " -> " .. addr)
 end
+log("=== KONIEC LISTY ===")
 
 local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
 
-log("Available components: " .. table.concat(allComponents, ", "))
-
--- szukaj skanera w dostępnych komponentach
-local scannerComponent = nil
+-- weź pierwszy dostępny component (poza transopserem) i użyj go jako scanner
 for name, addr in pairs(component.list()) do
-  if name:find("scanner") or name:find("analyzer") or name:find("gt") then
-    log("Found scanner candidate: " .. name)
-    scannerComponent = name
-    break
+  if name ~= "transposer" then
+    log("Ładuję component: " .. name .. " jako scanner...")
+    local ok, loaded = pcall(component.proxy, addr)
+    if ok and loaded then
+      scanner = loaded
+      scanner_name = name
+      log("✓ Załadowany: " .. scanner_name)
+      break
+    else
+      log("✗ Nie mogę załadować: " .. name)
+    end
   end
-end
-
-if scannerComponent then
-  log("Loading scanner: " .. scannerComponent)
-  local addr = component.list(scannerComponent)()
-  scanner = component.proxy(addr)
-  scanner_name = scannerComponent
-  if scanner then
-    log("Scanner loaded successfully")
-  else
-    log("Failed to load scanner proxy")
-  end
-else
-  log("No scanner component found in component.list()")
 end
 
 if scanner then
   local avail = {}
-  for _, m in ipairs(SCAN_METHODS) do if scanner[m] then table.insert(avail, m) end end
-  log("Scanner detected: " .. scanner_name .. " (" .. tostring(scanner) .. "); available methods: " .. (next(avail) and table.concat(avail, ", ") or "(none)"))
+  for _, m in ipairs(SCAN_METHODS) do 
+    if scanner[m] then table.insert(avail, m) end 
+  end
+  if #avail > 0 then
+    log("Scanner ma metody: " .. table.concat(avail, ", "))
+  else
+    log("Scanner załadowany ale bez znanych metod - spróbuję tak czy tak")
+  end
 else
-  log("No scanner component detected (scanner=nil)")
+  log("UWAGA: Nie znaleziono żadnego komponentu! Skrypt będzie pracować bez skanowania")
 end
 
 local function tryScan(side, slot)
