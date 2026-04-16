@@ -3,8 +3,12 @@ local sides = require("sides")
 
 local t = component.transposer
 
-local chest = sides.left
-local apiary = sides.right
+-- Konfiguracja łańcucha modułów: od skrzyni (index 1) do pasieki (ostatni index).
+-- Możesz dodać więcej modułów między skrzynką a pasieką, np. {sides.left, sides.front, sides.right}
+local CHAIN = {sides.left, sides.right}
+
+local chest = CHAIN[1]
+local apiary = CHAIN[#CHAIN]
 
 local FRAME = "untreated frame"
 
@@ -146,14 +150,13 @@ local function canInsertToSlot(slot)
     log("BRAK PRZEDMIOTU TESTOWEGO W SKRZYNI - nie mogę przetestować slotów")
     return nil
   end
-
   local stack = t.getStackInSlot(apiary, slot)
 
-  -- gdy slot pusty: spróbuj włożyć testowy przedmiot i od razu cofnąć
+  -- gdy slot pusty: spróbuj włożyć testowy przedmiot i od razu cofnąć (przez łańcuch)
   if not stack then
-    local moved = t.transferItem(chest, apiary, 1, testSlot, slot)
+    local moved = transferAcrossChain(1, #CHAIN, 1, testSlot, slot)
     if moved and moved > 0 then
-      t.transferItem(apiary, chest, moved, slot)
+      transferAcrossChain(#CHAIN, 1, moved, slot)
       return true
     else
       return false
@@ -167,17 +170,17 @@ local function canInsertToSlot(slot)
     return nil
   end
 
-  local extracted = t.transferItem(apiary, chest, 1, slot, free)
+  local extracted = transferAcrossChain(#CHAIN, 1, 1, slot, free)
   if not extracted or extracted == 0 then
     return false
   end
 
-  local reinserted = t.transferItem(chest, apiary, extracted, free, slot)
+  local reinserted = transferAcrossChain(1, #CHAIN, extracted, free, slot)
   if reinserted and reinserted > 0 then
     return true
   else
     -- jeśli nie udało się włożyć z powrotem, spróbuj przemieścić przedmiot z powrotem gdziekolwiek
-    t.transferItem(chest, apiary, extracted, free)
+    transferAcrossChain(1, #CHAIN, extracted, free)
     return false
   end
 end
