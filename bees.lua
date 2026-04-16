@@ -22,73 +22,27 @@ local function log(msg)
   print("[BEE] " .. msg)
 end
 
--- opcjonalna integracja z zewnętrznym skanerem (szukaj poprzez component.list)
+-- opcjonalna integracja z zewnętrznym skanerem 
+-- Jeśli skanera nie ma w systemie, skrypt będzie pracować z label'ami pszczół
 local scanner = nil
 local scanner_name = ""
 
--- najpierw wylistuj wszystkie dostępne komponenty
-log("=== DOSTĘPNE KOMPONENTY ===")
-for name, addr in pairs(component.list()) do
-  log(name .. " -> " .. addr)
-end
-log("=== KONIEC LISTY ===")
-
-local SCAN_METHODS = {"scan","scanStack","analyze","getStack","getItem","getItemMeta","getNBT"}
-
--- weź pierwszy dostępny component (poza transopserem) i użyj go jako scanner
-for name, addr in pairs(component.list()) do
-  if name ~= "transposer" then
-    log("Ładuję component: " .. name .. " jako scanner...")
-    local ok, loaded = pcall(component.proxy, addr)
-    if ok and loaded then
-      scanner = loaded
-      scanner_name = name
-      log("✓ Załadowany: " .. scanner_name)
-      break
-    else
-      log("✗ Nie mogę załadować: " .. name)
-    end
-  end
-end
-
-if scanner then
-  local avail = {}
-  for _, m in ipairs(SCAN_METHODS) do 
-    if scanner[m] then table.insert(avail, m) end 
-  end
-  if #avail > 0 then
-    log("Scanner ma metody: " .. table.concat(avail, ", "))
-  else
-    log("Scanner załadowany ale bez znanych metod - spróbuję tak czy tak")
-  end
-else
-  log("UWAGA: Nie znaleziono żadnego komponentu! Skrypt będzie pracować bez skanowania")
-end
+log("Inicjalizacja bez skanera - będę pracować z label'ami pszczół")
 
 local function tryScan(side, slot)
   if not scanner then return nil end
   for _, m in ipairs(SCAN_METHODS) do
-    log("tryScan: trying method '" .. m .. "' on slot " .. tostring(slot))
     local fn = scanner[m]
-    if not fn then
-      log("tryScan: method '" .. m .. "' not present on scanner")
-    else
-      -- spróbuj różnych sygnatur: (side, slot) lub (slot)
+    if fn then
       local ok, res = pcall(fn, scanner, side, slot)
       if not ok then
-        log("tryScan: method '" .. m .. "' raised, retrying with (slot) signature")
         ok, res = pcall(fn, scanner, slot)
       end
       if ok and res then
-        log("tryScan: method '" .. m .. "' returned data for slot " .. tostring(slot))
         return res
-      else
-        log("tryScan: method '" .. m .. "' returned no data for slot " .. tostring(slot))
       end
     end
   end
-
-  log("tryScan: no method produced data for slot " .. tostring(slot))
   return nil
 end
 
@@ -103,7 +57,6 @@ local scannedChest = {}
 -- przescanuj wszystkie nieskanowane pszczoły w skrzyni i zapisz wynik w cached
 local function scanChestUnscanned()
   if not scanner then
-    log("Brak skanera - pomijam skanowanie skrzyni")
     return
   end
 
@@ -114,52 +67,12 @@ local function scanChestUnscanned()
       if stack and stack.label then
         local l = stack.label:lower()
         if l:find("queen") or l:find("princess") or l:find("drone") then
-          -- spróbuj zeskanować bezpośrednio ze skrzyni
           local scan = tryScan(chest, i)
           if scan then
             local stext = scanToString(scan)
             scannedChest[i] = stext or true
-            log("ZESKANOWANO slot " .. i .. " => " .. (stext or "<dane binarne>"))
           else
-            -- bezpośrednie skanowanie nie zadziałało, spróbuj przenieść pszczołę do skanera
-            log("Nie mogę zeskanować bezpośrednio, przenoszę pszczołę do skanera...")
-            local scanner_side = sides.back
-            
-            -- przenieś pszczołę do skanera
-            local moved = safeTransfer(chest, scanner_side, 1, i)
-            if moved and moved > 0 then
-              log("Przeniesiono pszczołę do skanera, czekam na skan...")
-              os.sleep(0.5)
-              
-              -- teraz spróbuj zeskanować ze strony skanera
-              scan = tryScan(scanner_side, 1)
-              if scan then
-                local stext = scanToString(scan)
-                scannedChest[i] = stext or true
-                log("ZESKANOWANO (ze skanera) slot " .. i .. " => " .. (stext or "<dane binarne>"))
-              else
-                scannedChest[i] = false
-                log("BRAK DANYCH SKANERA DLA SLOTA " .. i .. " (nawet w skanerze)")
-              end
-              
-              -- przenieś pszczołę z powrotem do skrzyni - do tego samego slotu jeśli możliwe
-              local returned = safeTransfer(scanner_side, chest, 1, 1, i)
-              if returned and returned > 0 then
-                log("Zwrócono pszczołę do slotu " .. i)
-              else
-                -- jeśli slot zajęty, włóż do pierwszego wolnego
-                local free = findFreeChestSlot()
-                if free then
-                  safeTransfer(scanner_side, chest, 1, 1, free)
-                  log("Zwrócono pszczołę do slotu " .. free .. " (oryginalny zajęty)")
-                else
-                  log("BŁĄD: nie mogę zwrócić pszczoły - brak wolnego slotu!")
-                end
-              end
-            else
-              scannedChest[i] = false
-              log("BRAK DANYCH SKANERA DLA SLOTA " .. i)
-            end
+            scannedChest[i] = false
           end
         end
       end
@@ -354,10 +267,8 @@ local function findBest(keyword)
       local s
       if scanText and scanText:lower():find(keyword:lower()) then
         s = score(scanText)
-        log("SCAN TEST " .. (scanText or stack.label) .. " => " .. s)
       else
         s = score(stack.label)
-        log("LABEL TEST " .. stack.label .. " => " .. s)
       end
 
       if s > bestScore then
@@ -462,32 +373,18 @@ local function detectExtractOnlySlots()
   for i = 1, size do
     local stack = t.getStackInSlot(apiary, i)
     if stack and stack.label then
-      -- spróbuj skanera; jeśli dostępny, weź priorytetowo jego wynik
-      local scan = tryScanSlot(i)
       local label = stack.label
-      if scan then
-        if type(scan) == "table" then
-          label = scan.displayName or scan.name or scan.label or label
-        elseif type(scan) == "string" then
-          label = scan
-        end
-      end
 
       local canInsert = canInsertToSlot(i)
       if canInsert == false then
         table.insert(result, i)
-        log("DETECTED EXTRACT-ONLY SLOT: " .. i .. " (" .. label .. ")")
       elseif canInsert == true then
-        log("SLOT " .. i .. " accepts insertion")
+        -- slot pozwala na wstawianie
       else
-        -- fallback: jeśli detekcja nie powiodła się, ale w slocie są tylko pszczoły,
-        -- potraktuj go jako extract-only (to zapobiegnie fałszywemu raportowi "pracują")
+        -- fallback: jeśli w slocie są tylko pszczoły, traktuj jako extract-only
         local l = label:lower()
         if l:find("queen") or l:find("princess") or l:find("drone") then
           table.insert(result, i)
-          log("FALLBACK: traktuję slot " .. i .. " jako extract-only (zawiera pszczoły) - " .. label)
-        else
-          log("SLOT " .. i .. " detection unknown (brak testu lub brak wolnego slotu)")
         end
       end
     end
@@ -500,36 +397,22 @@ end
 local function collect()
   local slots = detectExtractOnlySlots()
   if not slots or #slots == 0 then
-    log("BRAK SLOTÓW EXTRACT-ONLY do zebrania")
     return
   end
 
   for _, i in ipairs(slots) do
     local stack = t.getStackInSlot(apiary, i)
     if stack then
-      local scan = tryScanSlot(i)
       local label = stack.label
-      if scan then
-        if type(scan) == "table" then
-          label = scan.displayName or scan.name or scan.label or label
-        elseif type(scan) == "string" then
-          label = scan
-        end
-      end
       local l = label and label:lower() or ""
       -- jeśli w output jest pszczoła, zabierz ją natychmiast
       if l:find("queen") or l:find("princess") or l:find("drone") then
         local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
-        if not moved or moved == 0 then
-          log("TRANSFER PSZCZOL Z SLOTA NIEUDANY " .. i)
-        else
-          log("ZABRANO PSZCZOLE: " .. label .. " ze slotu " .. i)
+        if moved and moved > 0 then
+          log("ZABRANO PSZCZOLE: " .. label)
         end
       else
-        local moved = transferAcrossChain(#CHAIN, 1, stack.size, i)
-        if not moved or moved == 0 then
-          log("TRANSFER NIEUDANY Z SLOTA " .. i)
-        end
+        transferAcrossChain(#CHAIN, 1, stack.size, i)
       end
     end
   end
