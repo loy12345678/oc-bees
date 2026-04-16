@@ -631,8 +631,6 @@ end
 -- ═══════════════════════════════════════════════════════════════
 
 local function main()
-  initLogFile()
-  
   log("═══════════════════════════════════════════════════════════", "BANNER")
   log("🐝 ZAAWANSOWANY SYSTEM HODOWLI PSZCZÓŁ - v2.0", "BANNER")
   log("Oparty na GTNH Bee Breeding Guide", "BANNER")
@@ -693,6 +691,8 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- 🚀 START
 -- ═══════════════════════════════════════════════════════════════
+
+initLogFile()
 
 local ok, err = pcall(main)
 if not ok then
