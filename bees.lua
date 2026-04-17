@@ -412,82 +412,6 @@ local function selectAndStoreBestDrone()
   end
 end
 
-local function collectProducts()
-  local apiary_size = t.getInventorySize(apiary) or 0
-  local collected = 0
-  
-  for i = 1, apiary_size do
-    local stack = t.getStackInSlot(apiary, i)
-    
-    if stack and stack.label then
-      if not stack.individual then
-        local l = stack.label:lower()
-        if l:find("comb") or l:find("honey") then
-          local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
-          if moved and moved > 0 then
-            collected = collected + moved
-            log("Zebrano: " .. stack.label .. " x" .. moved, "PRODUCT")
-          end
-        end
-      end
-    end
-  end
-  
-  if collected > 0 then
-    STATE.products_collected = STATE.products_collected + collected
-  end
-  
-  return collected
-end
-
-local function extractBees()
-  local apiary_size = t.getInventorySize(apiary) or 0
-  local extracted = 0
-  
-  for i = 1, apiary_size do
-    local stack = t.getStackInSlot(apiary, i)
-    
-    if stack and stack.individual then
-      local label = stack.label:lower()
-      local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
-      if moved and moved > 0 then
-        extracted = extracted + moved
-        
-        if label:find("princess") then
-          STATE.queens_produced = STATE.queens_produced + 1
-        end
-        
-        log("Wyjeto: " .. stack.label .. " x" .. moved, "EXTRACT")
-      end
-    end
-  end
-  
-  return extracted
-end
-
-local function refillFrames()
-  local apiary_size = t.getInventorySize(apiary) or 0
-  local refilled = 0
-  
-  for i = 1, apiary_size do
-    local stack = t.getStackInSlot(apiary, i)
-    
-    if not stack then
-      local frame_slot = findItemInChest(CONFIG.frame_name)
-      
-      if frame_slot then
-        local moved = transferAcrossChain(1, #CONFIG.chain, 1, frame_slot, i)
-        if moved and moved > 0 then
-          refilled = refilled + 1
-          log("Frame dodany do slotu " .. i, "FRAME")
-        end
-      end
-    end
-  end
-  
-  return refilled
-end
-
 -- STATISTICS
 
 local function printStats()
@@ -516,8 +440,6 @@ local function main()
   log("", "BANNER")
   
   debugShowAllBees()
-  
-  scanAllUnscannedBees()
   
   log("Nacisni ENTER aby zaczac, lub Ctrl+C aby anulowac...", "PROMPT")
   io.read()
