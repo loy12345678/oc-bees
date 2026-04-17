@@ -661,8 +661,41 @@ local function main()
   printBeeDetails(mother_slot, "INFORMACJE MATKI (PANI MATKA)")
   
   log("", "INFO")
+  log("Przenoszenie pary hodowlanej do skrzynki wyjsciowej...", "ACTION")
+  
+  -- Transfer drona do skrzynki out
+  local free_slot_1 = findFreeSlot(chest_out)
+  if not free_slot_1 then
+    log("Blad: Brak wolnych slotow w skrzynce wyjsciowej dla drona", "ERROR")
+    return
+  end
+  
+  local moved_drone = safeTransfer(chest_in, chest_out, 1, drone_slot, free_slot_1)
+  if moved_drone and moved_drone > 0 then
+    log("Dron przeniesiony do skrzynki (slot " .. free_slot_1 .. ")", "SUCCESS")
+  else
+    log("Blad podczas transferu drona", "ERROR")
+    return
+  end
+  
+  -- Transfer matki do skrzynki out
+  local free_slot_2 = findFreeSlot(chest_out)
+  if not free_slot_2 then
+    log("Blad: Brak wolnych slotow w skrzynce wyjsciowej dla matki", "ERROR")
+    return
+  end
+  
+  local moved_mother = safeTransfer(chest_in, chest_out, 1, mother_slot, free_slot_2)
+  if moved_mother and moved_mother > 0 then
+    log("Matka przeniesiona do skrzynki (slot " .. free_slot_2 .. ")", "SUCCESS")
+  else
+    log("Blad podczas transferu matki", "ERROR")
+    return
+  end
+  
+  log("", "INFO")
   log(string.rep("=", 60), "SUCCESS")
-  log("PARA HODOWLANA WYBRANA I ANALIZOWANA", "SUCCESS")
+  log("PARA HODOWLANA WYBRANA I PRZENIESIONA", "SUCCESS")
   log(string.rep("=", 60), "SUCCESS")
   log("", "SUCCESS")
   log("Program zakonczony.", "SUCCESS")
