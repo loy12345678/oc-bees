@@ -679,6 +679,7 @@ local function main()
   
   log("Dron label: " .. (drone_stack.label or "brak"), "DEBUG")
   log("Matka label: " .. (mother_stack.label or "brak"), "DEBUG")
+  log("Dron size: " .. (drone_stack.size or 0) .. ", Matka size: " .. (mother_stack.size or 0), "DEBUG")
   
   -- Znajdź dwa wolne sloty
   local free_slot_1 = findFreeSlot(chest_out)
@@ -707,7 +708,16 @@ local function main()
   
   log("✓ Dron przeniesiony", "SUCCESS")
   
-  -- Transfer matki (przesunięty z powodu zmian inventory?)
+  -- Sprawdzenie stanu po transferze drona
+  local mother_check_after_drone = t.getStackInSlot(chest_in, mother_slot)
+  log("STAN PO TRANSFERZE DRONA:", "DEBUG")
+  log("  Mother slot " .. mother_slot .. " zawiera: " .. tostring(mother_check_after_drone ~= nil), "DEBUG")
+  if mother_check_after_drone then
+    log("  Label: " .. (mother_check_after_drone.label or "brak"), "DEBUG")
+    log("  Size: " .. (mother_check_after_drone.size or 0), "DEBUG")
+  end
+  
+  -- Sprawdzenie całej chest_in po transferze drona
   log("Transferuję matkę...", "ACTION")
   local moved_mother = t.transferItem(chest_in, chest_out, 1, mother_slot, free_slot_2)
   log("Matka transfer result: " .. tostring(moved_mother), "DEBUG")
