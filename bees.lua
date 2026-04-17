@@ -412,57 +412,101 @@ local function selectAndStoreBestDrone()
   end
 end
 
--- STATISTICS
+-- DETAILED BEE INFO
 
-local function printStats()
-  local uptime = os.time() - STATE.start_time
-  local hours = math.floor(uptime / 3600)
-  local mins = math.floor((uptime % 3600) / 60)
+local function printBeeDetails(slot)
+  local stack = t.getStackInSlot(chest_in, slot)
   
-  log("", "STAT")
-  log(string.rep("=", 60), "STAT")
-  log("STATYSTYKA HODOWLI", "STAT")
-  log(string.rep("=", 60), "STAT")
-  log("Uptime: " .. hours .. "h " .. mins .. "m", "STAT")
-  log("Cycles: " .. STATE.cycle_count, "STAT")
-  log("Queens Produced: " .. STATE.queens_produced, "STAT")
-  log("Products Collected: " .. STATE.products_collected, "STAT")
-  log(string.rep("=", 60), "STAT")
-  log("", "STAT")
+  if not stack then
+    log("Blad: Brak pszczoly w slocie " .. slot, "ERROR")
+    return
+  end
+  
+  if not stack.individual then
+    log("Blad: Pszczola nie jest zeskanowana", "ERROR")
+    return
+  end
+  
+  local species, bee_type = getBeeName(stack)
+  local purity = getBeePurity(species, stack)
+  local score = getGeneticScore(stack, stack.individual.active, species)
+  
+  log("", "DETAIL")
+  log(string.rep("=", 80), "DETAIL")
+  log("PEŁNE INFORMACJE O WYBRANEJ PSZCZOLE", "DETAIL")
+  log(string.rep("=", 80), "DETAIL")
+  log("", "DETAIL")
+  
+  log("LABEL: " .. (stack.label or "(brak)"), "DETAIL")
+  log("TYP: " .. bee_type, "DETAIL")
+  log("GATUNEK: " .. species, "DETAIL")
+  log("CZYSTOŚĆ (PURITY): " .. purity .. "/2", "DETAIL")
+  log("WYNIK GENETYCZNY (SCORE): " .. score, "DETAIL")
+  log("ROZMIAR STACKA: " .. (stack.size or 1), "DETAIL")
+  log("", "DETAIL")
+  
+  log("ALLELE AKTYWNE (ACTIVE):", "DETAIL")
+  local active = stack.individual.active
+  for gene, weight in pairs(CONFIG.geneWeights) do
+    if active[gene] then
+      local value = active[gene]
+      if type(value) == "table" and value.name then
+        log("  " .. gene .. ": " .. value.name, "DETAIL")
+      else
+        log("  " .. gene .. ": " .. tostring(value), "DETAIL")
+      end
+    end
+  end
+  
+  log("", "DETAIL")
+  log("ALLELE NIEAKTYWNE (INACTIVE):", "DETAIL")
+  local inactive = stack.individual.inactive
+  for gene, weight in pairs(CONFIG.geneWeights) do
+    if inactive[gene] then
+      local value = inactive[gene]
+      if type(value) == "table" and value.name then
+        log("  " .. gene .. ": " .. value.name, "DETAIL")
+      else
+        log("  " .. gene .. ": " .. tostring(value), "DETAIL")
+      end
+    end
+  end
+  
+  log("", "DETAIL")
+  log(string.rep("=", 80), "DETAIL")
+  log("", "DETAIL")
 end
 
 -- MAIN
 
 local function main()
   log(string.rep("=", 60), "BANNER")
-  log("BEE BREEDER v3.0 - BreederTron Inspired", "BANNER")
+  log("BEE BREEDER v3.0 - SINGLE RUN DIAGNOSTICS", "BANNER")
   log(string.rep("=", 60), "BANNER")
   log("", "BANNER")
   
+  -- Pokaż diagnostykę wszystkich pszczół
   debugShowAllBees()
   
-  log("Nacisni ENTER aby zaczac, lub Ctrl+C aby anulowac...", "PROMPT")
+  log("Nacisni ENTER aby wybrac najlepszego drona, lub Ctrl+C aby anulowac...", "PROMPT")
   io.read()
   
-  local cycle = 0
-  while true do
-    cycle = cycle + 1
-    log("=== CYKL " .. cycle .. " ===", "CYCLE")
-    
-    if selectAndStoreBestDrone() then
-      STATE_selected_slots = {}
-    else
-      log("Brak dronow do przechowywania", "WARN")
-      os.sleep(30)
-    end
-    
-    if cycle % 5 == 0 then
-      printStats()
-    end
-    
-    log("", "INFO")
-    os.sleep(CONFIG.sleep_main_loop)
+  log("", "INFO")
+  
+  -- Wybierz najlepszego drona (bez transferu)
+  local drone_slot = selectBee("DRONE")
+  
+  if not drone_slot then
+    log("Brak dostepnych dronow", "ERROR")
+    return
   end
+  
+  log("", "INFO")
+  
+  -- Wyświetl pełne informacje
+  printBeeDetails(drone_slot)
+  
+  log("Program zakonczony.", "SUCCESS")
 end
 
 -- START
