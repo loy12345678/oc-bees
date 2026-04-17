@@ -719,12 +719,41 @@ local function main()
   
   -- Sprawdzenie całej chest_in po transferze drona
   log("Transferuję matkę...", "ACTION")
+  
+  -- DEBUG: Sprawdź stan przed transferem matki
+  local mother_before_transfer = t.getStackInSlot(chest_in, mother_slot)
+  local target_slot_status = t.getStackInSlot(chest_out, free_slot_2)
+  
+  log("DEBUG - Przed transfer matki:", "DEBUG")
+  log("  Mother slot (" .. mother_slot .. ") zawiera: " .. tostring(mother_before_transfer ~= nil), "DEBUG")
+  if mother_before_transfer then
+    log("    Size: " .. (mother_before_transfer.size or 1) .. ", Label: " .. (mother_before_transfer.label or "brak"), "DEBUG")
+  end
+  log("  Target slot (" .. free_slot_2 .. ") w chest_out jest pusty: " .. tostring(target_slot_status == nil), "DEBUG")
+  
   local moved_mother = t.transferItem(chest_in, chest_out, 1, mother_slot, free_slot_2)
   log("Matka transfer result: " .. tostring(moved_mother), "DEBUG")
   
   if moved_mother ~= 1 then
     log("Blad: Transfer matki nie powiódł się (moved=" .. tostring(moved_mother) .. ")", "ERROR")
-    return
+    
+    -- DEBUG: Sprawdź stan po nieudanym transferze
+    local mother_after_failed = t.getStackInSlot(chest_in, mother_slot)
+    local target_after_failed = t.getStackInSlot(chest_out, free_slot_2)
+    
+    log("DEBUG - Po nieudanym transferze:", "DEBUG")
+    log("  Mother wciąż w slot " .. mother_slot .. ": " .. tostring(mother_after_failed ~= nil), "DEBUG")
+    log("  Target slot " .. free_slot_2 .. " w chest_out: " .. tostring(target_after_failed ~= nil), "DEBUG")
+    
+    -- Spróbuj transfer bez toSlot
+    log("Próbuję transfer bez określania docelowego slotu...", "DEBUG")
+    local moved_mother_retry = t.transferItem(chest_in, chest_out, 1, mother_slot)
+    log("Retry result: " .. tostring(moved_mother_retry), "DEBUG")
+    
+    if moved_mother_retry ~= 1 then
+      log("Retry także nieudany! Może problem z samą pszczołą lub chest_out.", "ERROR")
+      return
+    end
   end
   
   log("✓ Matka przeniesiona", "SUCCESS")
