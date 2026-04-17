@@ -832,8 +832,11 @@ while true do
     log("FATAL ERROR: " .. tostring(err), "FATAL")
   end
   
+  -- Zaktualizuj snapshot PO transferze pszczół
+  snapshot = getChestSnapshot()
+  
   log("", "BANNER")
-  log("Czekam na zmiany w chest_in (Ctrl+C aby wyjść)...", "BANNER")
+  log("Snapshot zaktualizowany PO transferze. Czekam na zmiany w chest_in (Ctrl+C aby wyjść)...", "BANNER")
   
   -- Sprawdzaj czy chest_in się zmienił
   while true do
