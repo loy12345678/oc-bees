@@ -25,7 +25,7 @@ local CONFIG = {
     ["lifespan"] = 1,
     ["flowering"] = 1,
     ["flowerProvider"] = 1,
-    ["territory"] = 1,
+    ["territory"] = 1,1
     ["effect"] = 1,
   },
   
@@ -676,7 +676,7 @@ end
 
 -- MAIN
 
-local function main()
+local function main(cycle_count)
   log(string.rep("=", 60), "BANNER")
   log("BEE BREEDER v3.0 - SINGLE RUN DIAGNOSTICS", "BANNER")
   log(string.rep("=", 60), "BANNER")
@@ -685,17 +685,7 @@ local function main()
   -- Pokaż diagnostykę wszystkich pszczół
   debugShowAllBees()
   
-  -- Pytaj użytkownika ile cykli chce wykonać
   log("", "INFO")
-  log("Ile cykli wyboru chcesz wykonać?", "PROMPT")
-  local cycles_input = io.read()
-  local cycle_count = tonumber(cycles_input)
-  
-  if not cycle_count or cycle_count < 1 then
-    log("Blad: Wprowadz liczbe >= 1", "ERROR")
-    return
-  end
-  
   log("Bedzie wykonywac cykl wyboru " .. cycle_count .. "x", "INFO")
   log("", "INFO")
   
@@ -846,6 +836,24 @@ end
 
 initLogFile()
 
+-- Pytaj użytkownika ile cykli chce wykonać (TYLKO RAZ na początku)
+log(string.rep("=", 60), "BANNER")
+log("BEE BREEDER v3.0", "BANNER")
+log(string.rep("=", 60), "BANNER")
+log("", "INFO")
+log("Ile cykli wyboru chcesz wykonać w każdym uruchomieniu?", "PROMPT")
+local cycles_input = io.read()
+local cycle_count = tonumber(cycles_input)
+
+if not cycle_count or cycle_count < 1 then
+  log("Blad: Wprowadz liczbe >= 1", "ERROR")
+  closeLogFile()
+  return
+end
+
+log("Liczba cykli: " .. cycle_count, "INFO")
+log("", "INFO")
+
 while true do
   -- Zrób snapshot stanu chest_in
   local snapshot = getChestSnapshot()
@@ -853,8 +861,8 @@ while true do
   log("", "BANNER")
   log("SNAPSHOT chest_in wykonany. Czekam na ENTER...", "BANNER")
   
-  -- Uruchom główny proces
-  local ok, err = pcall(main)
+  -- Uruchom główny proces z zdefiniowaną liczbą cykli
+  local ok, err = pcall(main, cycle_count)
   if not ok then
     log("FATAL ERROR: " .. tostring(err), "FATAL")
   end
