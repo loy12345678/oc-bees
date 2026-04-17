@@ -414,7 +414,8 @@ end
 
 -- DETAILED BEE INFO
 
-local function printBeeDetails(slot)
+local function printBeeDetails(slot, title)
+  title = title or "PSZCZOLA"
   local stack = t.getStackInSlot(chest_in, slot)
   
   if not stack then
@@ -433,7 +434,7 @@ local function printBeeDetails(slot)
   
   log("", "DETAIL")
   log(string.rep("=", 80), "DETAIL")
-  log("PEŁNE INFORMACJE O WYBRANEJ PSZCZOLE", "DETAIL")
+  log(title, "DETAIL")
   log(string.rep("=", 80), "DETAIL")
   log("", "DETAIL")
   
@@ -477,6 +478,141 @@ local function printBeeDetails(slot)
   log("", "DETAIL")
 end
 
+-- EXTRACT TARGET GENES FROM DRONE
+
+local function extractTargetGenesFromDrone(drone_slot)
+  local stack = t.getStackInSlot(chest_in, drone_slot)
+  
+  if not stack or not stack.individual then
+    return nil
+  end
+  
+  local active = stack.individual.active
+  local inactive = stack.individual.inactive
+  
+  -- Extrahuj najlepsze allele (active preferowane, wtedy inactive)
+  local targetGenes = {}
+  
+  for gene, _ in pairs(CONFIG.geneWeights) do
+    if active[gene] then
+      targetGenes[gene] = active[gene]
+    elseif inactive[gene] then
+      targetGenes[gene] = inactive[gene]
+    end
+  end
+  
+  return targetGenes
+end
+
+-- FIND BEST MOTHER BEE
+
+local function selectBestMother(droneTargetGenes)
+  if not droneTargetGenes then
+    log("Blad: Brak genow do porownania", "ERROR")
+    return nil
+  end
+  
+  local size = t.getInventorySize(chest_in) or 0
+  local candidates = {}
+  local droneSpecies = droneTargetGenes.species and droneTargetGenes.species.name or nil
+  
+  log("", "SEARCH")
+  log("Szukam najlepszej matki (princess/queen)...", "SEARCH")
+  
+  for i = 1, size do
+    local stack = t.getStackInSlot(chest_in, i)
+    
+    if stack and stack.label then
+      local label = stack.label
+      local species, bee_type = getBeeName(stack)
+      
+      -- Szukamy princess lub queen
+      if bee_type == "PRINCESS" or bee_type == "QUEEN" then
+        
+        if stack.individual == nil then
+          log("  [SLOT " .. i .. "] " .. label .. " - NIESKANOWANA", "SKIP")
+          goto continue_mother
+        end
+        
+        local purity = getBeePurity(species, stack)
+        local score = getGeneticScore(stack, stack.individual.active, species)
+        
+        -- Liczymy dopasowanie do genow drona
+        local match_count = 0
+        local active = stack.individual.active
+        local inactive = stack.individual.inactive
+        
+        for gene, targetValue in pairs(droneTargetGenes) do
+          if type(targetValue) == "table" and targetValue.name then
+            if (active[gene] and active[gene].name == targetValue.name) or
+               (inactive[gene] and inactive[gene].name == targetValue.name) then
+              match_count = match_count + 1
+            end
+          elseif active[gene] == targetValue or inactive[gene] == targetValue then
+            match_count = match_count + 1
+          end
+        end
+        
+        log("  [SLOT " .. i .. "] " .. species .. " (" .. bee_type .. ") - " .. label, "INFO")
+        log("    Purity: " .. purity .. "/2 | Score: " .. score .. " | Match: " .. match_count, "INFO")
+        
+        if purity >= CONFIG.min_purity and score >= CONFIG.min_score then
+          table.insert(candidates, {
+            slot = i,
+            label = label,
+            species = species,
+            bee_type = bee_type,
+            purity = purity,
+            score = score,
+            match_count = match_count,
+            bee = stack
+          })
+          log("    OK - Zaakceptowana", "ACCEPT")
+        else
+          log("    SKIP - Odrzucona (purity: " .. purity .. ", score: " .. score .. ")", "SKIP")
+        end
+      end
+    end
+    
+    ::continue_mother::
+  end
+  
+  if #candidates == 0 then
+    log("BRAK MATEK", "WARN")
+    return nil
+  end
+  
+  -- Sortuj: najpierw same gatunki drona, potem match, purity, score
+  table.sort(candidates, function(a, b)
+    -- Preferuj matkę z tym samym gatunkiem co dron
+    local a_same_species = (a.species == droneSpecies) and 1 or 0
+    local b_same_species = (b.species == droneSpecies) and 1 or 0
+    
+    if a_same_species ~= b_same_species then
+      return a_same_species > b_same_species
+    end
+    
+    -- Potem sort po dopasowaniu
+    if a.match_count ~= b.match_count then
+      return a.match_count > b.match_count
+    end
+    
+    -- Potem po czystości
+    if a.purity ~= b.purity then
+      return a.purity > b.purity
+    end
+    
+    -- Na koniec po score
+    return a.score > b.score
+  end)
+  
+  local best = candidates[1]
+  log("WYBRANA MATKA: " .. best.species .. " (" .. best.bee_type .. ") - purity: " .. best.purity .. ", score: " .. best.score .. ", match: " .. best.match_count, "SELECT")
+  log("", "SELECT")
+  
+  return best.slot
+end
+
 -- MAIN
 
 local function main()
@@ -488,7 +624,7 @@ local function main()
   -- Pokaż diagnostykę wszystkich pszczół
   debugShowAllBees()
   
-  log("Nacisni ENTER aby wybrac najlepszego drona, lub Ctrl+C aby anulowac...", "PROMPT")
+  log("Nacisni ENTER aby wybrac drona i matke, lub Ctrl+C aby anulowac...", "PROMPT")
   io.read()
   
   log("", "INFO")
@@ -503,9 +639,32 @@ local function main()
   
   log("", "INFO")
   
-  -- Wyświetl pełne informacje
-  printBeeDetails(drone_slot)
+  -- Wyświetl szczegóły drona
+  printBeeDetails(drone_slot, "INFORMACJE DRONA (OJCIEC)")
   
+  -- Ekstrahuj geny drona
+  local targetGenes = extractTargetGenesFromDrone(drone_slot)
+  
+  log("", "INFO")
+  
+  -- Wybierz najlepszą matkę na podstawie genów drona
+  local mother_slot = selectBestMother(targetGenes)
+  
+  if not mother_slot then
+    log("Brak dostepnych matek", "ERROR")
+    return
+  end
+  
+  log("", "INFO")
+  
+  -- Wyświetl szczegóły matki
+  printBeeDetails(mother_slot, "INFORMACJE MATKI (PANI MATKA)")
+  
+  log("", "INFO")
+  log(string.rep("=", 60), "SUCCESS")
+  log("PARA HODOWLANA WYBRANA I ANALIZOWANA", "SUCCESS")
+  log(string.rep("=", 60), "SUCCESS")
+  log("", "SUCCESS")
   log("Program zakonczony.", "SUCCESS")
 end
 
