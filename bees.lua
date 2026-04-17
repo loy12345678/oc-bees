@@ -613,6 +613,55 @@ local function selectBestMother(droneTargetGenes)
   return best.slot
 end
 
+-- SNAPSHOT & CHANGE DETECTION
+
+local function getChestSnapshot()
+  local snapshot = {}
+  local size = t.getInventorySize(chest_in) or 0
+  
+  for i = 1, size do
+    local stack = t.getStackInSlot(chest_in, i)
+    if stack then
+      snapshot[i] = {
+        label = stack.label,
+        size = stack.size or 1,
+      }
+    else
+      snapshot[i] = nil
+    end
+  end
+  
+  return snapshot
+end
+
+local function hasChestChanged(old_snapshot)
+  local size = t.getInventorySize(chest_in) or 0
+  
+  for i = 1, size do
+    local stack = t.getStackInSlot(chest_in, i)
+    local old_stack = old_snapshot[i]
+    
+    -- Jeśli stary był pusty, a teraz coś jest - zmiana
+    if old_stack == nil and stack ~= nil then
+      return true
+    end
+    
+    -- Jeśli stary nie był pusty, a teraz jest pusty - zmiana
+    if old_stack ~= nil and stack == nil then
+      return true
+    end
+    
+    -- Jeśli obaj istnieją, porównaj
+    if old_stack ~= nil and stack ~= nil then
+      if old_stack.label ~= stack.label or old_stack.size ~= (stack.size or 1) then
+        return true
+      end
+    end
+  end
+  
+  return false
+end
+
 -- MAIN
 
 local function main()
@@ -770,10 +819,32 @@ end
 
 initLogFile()
 
-local ok, err = pcall(main)
-if not ok then
-  log("FATAL ERROR: " .. tostring(err), "FATAL")
-  printStats()
+while true do
+  -- Zrób snapshot stanu chest_in
+  local snapshot = getChestSnapshot()
+  
+  log("", "BANNER")
+  log("SNAPSHOT chest_in wykonany. Czekam na ENTER...", "BANNER")
+  
+  -- Uruchom główny proces
+  local ok, err = pcall(main)
+  if not ok then
+    log("FATAL ERROR: " .. tostring(err), "FATAL")
+  end
+  
+  log("", "BANNER")
+  log("Czekam na zmiany w chest_in (Ctrl+C aby wyjść)...", "BANNER")
+  
+  -- Sprawdzaj czy chest_in się zmienił
+  while true do
+    os.sleep(CONFIG.sleep_main_loop or 2)
+    
+    if hasChestChanged(snapshot) then
+      log("ZMIANA WYKRYTA! Restart procesu...", "BANNER")
+      STATE_selected_slots = {}  -- Wyczyść poprzednie zaznaczenia
+      break
+    end
+  end
 end
 
 closeLogFile()
