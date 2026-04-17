@@ -663,35 +663,61 @@ local function main()
   log("", "INFO")
   log("Przenoszenie pary hodowlanej do skrzynki wyjsciowej...", "ACTION")
   
-  -- Transfer drona do skrzynki out
+  -- Pobierz dane pszczół PRZED jakimkolwiek transferem
+  local drone_stack = t.getStackInSlot(chest_in, drone_slot)
+  local mother_stack = t.getStackInSlot(chest_in, mother_slot)
+  
+  if not drone_stack then
+    log("Blad: Dron zniknął z slotu " .. drone_slot, "ERROR")
+    return
+  end
+  
+  if not mother_stack then
+    log("Blad: Matka zniknęła ze slotu " .. mother_slot, "ERROR")
+    return
+  end
+  
+  log("Dron label: " .. (drone_stack.label or "brak"), "DEBUG")
+  log("Matka label: " .. (mother_stack.label or "brak"), "DEBUG")
+  
+  -- Znajdź dwa wolne sloty
   local free_slot_1 = findFreeSlot(chest_out)
   if not free_slot_1 then
-    log("Blad: Brak wolnych slotow w skrzynce wyjsciowej dla drona", "ERROR")
+    log("Blad: Brak wolnych slotow dla drona", "ERROR")
     return
   end
   
-  local moved_drone = safeTransfer(chest_in, chest_out, 1, drone_slot, free_slot_1)
-  if moved_drone and moved_drone > 0 then
-    log("Dron przeniesiony do skrzynki (slot " .. free_slot_1 .. ")", "SUCCESS")
-  else
-    log("Blad podczas transferu drona", "ERROR")
-    return
-  end
-  
-  -- Transfer matki do skrzynki out
   local free_slot_2 = findFreeSlot(chest_out)
   if not free_slot_2 then
-    log("Blad: Brak wolnych slotow w skrzynce wyjsciowej dla matki", "ERROR")
+    log("Blad: Brak dwóch wolnych slotów (tylko jeden)", "ERROR")
     return
   end
   
-  local moved_mother = safeTransfer(chest_in, chest_out, 1, mother_slot, free_slot_2)
-  if moved_mother and moved_mother > 0 then
-    log("Matka przeniesiona do skrzynki (slot " .. free_slot_2 .. ")", "SUCCESS")
-  else
-    log("Blad podczas transferu matki", "ERROR")
+  log("Sloty do transferu - Dron: " .. free_slot_1 .. ", Matka: " .. free_slot_2, "DEBUG")
+  
+  -- Transfer drona
+  log("Transferuję drona...", "ACTION")
+  local moved_drone = t.transferItem(chest_in, chest_out, 1, drone_slot, free_slot_1)
+  log("Dron transfer result: " .. tostring(moved_drone), "DEBUG")
+  
+  if moved_drone ~= 1 then
+    log("Blad: Transfer drona nie powiódł się (moved=" .. tostring(moved_drone) .. ")", "ERROR")
     return
   end
+  
+  log("✓ Dron przeniesiony", "SUCCESS")
+  
+  -- Transfer matki (przesunięty z powodu zmian inventory?)
+  log("Transferuję matkę...", "ACTION")
+  local moved_mother = t.transferItem(chest_in, chest_out, 1, mother_slot, free_slot_2)
+  log("Matka transfer result: " .. tostring(moved_mother), "DEBUG")
+  
+  if moved_mother ~= 1 then
+    log("Blad: Transfer matki nie powiódł się (moved=" .. tostring(moved_mother) .. ")", "ERROR")
+    return
+  end
+  
+  log("✓ Matka przeniesiona", "SUCCESS")
   
   log("", "INFO")
   log(string.rep("=", 60), "SUCCESS")
