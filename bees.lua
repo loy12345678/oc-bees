@@ -701,7 +701,7 @@ local function main()
   
   -- Pętla wyboru dla każdej liczby cykli
   for cycle = 1, cycle_count do
-    log("========== CYKL " .. cycle .. " / " .. free_slots .. " ==========", "BANNER")
+    log("========== CYKL " .. cycle .. " / " .. cycle_count .. " ==========", "BANNER")
     
     -- Wybierz najlepszego drona
     local drone_slot = selectBee("DRONE")
