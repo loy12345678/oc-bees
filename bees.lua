@@ -1,23 +1,17 @@
 --[[
-  ╔════════════════════════════════════════════════════════════════╗
-  ║     ZAAWANSOWANY SYSTEM HODOWLI PSZCZÓŁ NA OpenComputers      ║
-  ║                   v3.0 - BreederTron Inspired                  ║
-  ╚════════════════════════════════════════════════════════════════╝
-  
-  Oparty na: BreederTron3000 + GTNH Bee Breeding Guide
-  Automatyczne hodowanie z pełnym genetic scoring
+  Bee Breeder v3.0 - BreederTron Inspired
+  Advanced bee breeding system for OpenComputers
+  Based on BreederTron3000 + GTNH Bee Breeding Guide
 ]]
 
 local component = require("component")
 local sides = require("sides")
 local t = component.transposer
 
--- ═══════════════════════════════════════════════════════════════
--- ⚙️   KONFIGURACJA
--- ═══════════════════════════════════════════════════════════════
+-- CONFIGURATION
 
 local CONFIG = {
-  chain = {sides.left, sides.right},
+  chain = {sides.left, sides.right},  -- chest_in -> chest_out (do przechowywania dronów)
   
   geneWeights = {
     ["species"] = 7,
@@ -39,14 +33,11 @@ local CONFIG = {
   min_score = 50,
   min_purity = 0,
   
-  sleep_main_loop = 5,
-  sleep_after_insert = 10,
-  sleep_cycle_check = 1,
-  frame_name = "untreated frame",
+  sleep_main_loop = 2,
 }
 
-local chest = CONFIG.chain[1]
-local apiary = CONFIG.chain[#CONFIG.chain]
+local chest_in = CONFIG.chain[1]
+local chest_out = CONFIG.chain[2]
 
 local STATE = {
   cycle_count = 0,
@@ -57,9 +48,7 @@ local STATE = {
   start_time = os.time(),
 }
 
--- ═══════════════════════════════════════════════════════════════
--- 📝 LOGGING
--- ═══════════════════════════════════════════════════════════════
+-- LOGGING
 
 local LOG_FILE = "bee_breeder_v3.log"
 local log_handle = nil
@@ -91,9 +80,7 @@ local function log(msg, level)
   end
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 🔧 TRANSFER FUNCTIONS
--- ═══════════════════════════════════════════════════════════════
+-- TRANSFER FUNCTIONS
 
 local function safePcall(fn, ...)
   local ok, result = pcall(fn, ...)
@@ -141,15 +128,13 @@ local function transferAcrossChain(fromIdx, toIdx, count, fromSlot, toSlot)
   return moved
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 🔍 BEE IDENTIFICATION
--- ═══════════════════════════════════════════════════════════════
+-- BEE IDENTIFICATION
 
 local function getBeeName(bee)
   if bee == nil or bee.individual == nil then
     return "UNKNOWN", "UNKNOWN"
   end
-  
+
   local active = bee.individual.active
   if not active or not active.species then
     return "UNSCANNED", "UNKNOWN"
@@ -244,16 +229,13 @@ local function getGeneticScore(bee, targetGenes, targetSpecies)
   return score
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 🔍 INVENTORY
--- ═══════════════════════════════════════════════════════════════
+-- INVENTORY
 
-local function findItemInChest(name)
-  local size = t.getInventorySize(chest) or 0
+local function findFreeSlot(side)
+  local size = t.getInventorySize(side) or 0
   
   for i = 1, size do
-    local stack = t.getStackInSlot(chest, i)
-    if stack and stack.label and stack.label:lower():find(name:lower()) then
+    if not t.getStackInSlot(side, i) then
       return i
     end
   end
@@ -265,7 +247,7 @@ local function debugShowAllBees()
   log("DIAGNOSTYKA - WSZYSTKIE PSZCZOLY W SKRZYNI", "DEBUG")
   log(string.rep("=", 60), "DEBUG")
   
-  local size = t.getInventorySize(chest) or 0
+  local size = t.getInventorySize(chest_in) or 0
   if not size or size == 0 then
     log("Blad: Nie moge odczytac rozmiaru skrzyni", "ERROR")
     return
@@ -278,14 +260,13 @@ local function debugShowAllBees()
   local unscanned = 0
   
   for i = 1, size do
-    local stack = t.getStackInSlot(chest, i)
+    local stack = t.getStackInSlot(chest_in, i)
     
     if stack then
       bee_count = bee_count + 1
       log("", "DEBUG")
       log("[BEE #" .. bee_count .. " - SLOT " .. i .. "]", "DEBUG")
       log(string.rep("-", 60), "DEBUG")
-      
       log("LABEL: " .. (stack.label or "(brak)"), "DEBUG")
       
       if stack.individual == nil then
@@ -315,21 +296,25 @@ local function debugShowAllBees()
   log("", "DEBUG")
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 👑 BEE SELECTION
--- ═══════════════════════════════════════════════════════════════
+-- SCANNER
+
+
+
+-- BEE SELECTION
+
+local STATE_selected_slots = {}
 
 local function selectBee(bee_type, targetSpecies)
   bee_type = bee_type or "PRINCESS"
   targetSpecies = targetSpecies or nil
   
-  local size = t.getInventorySize(chest) or 0
+  local size = t.getInventorySize(chest_in) or 0
   local candidates = {}
   
   log("Szukam " .. bee_type .. "...", "SEARCH")
   
   for i = 1, size do
-    local stack = t.getStackInSlot(chest, i)
+    local stack = t.getStackInSlot(chest_in, i)
     
     if stack and stack.label then
       local label = stack.label
@@ -352,7 +337,9 @@ local function selectBee(bee_type, targetSpecies)
         log("  [SLOT " .. i .. "] " .. species .. " (" .. label .. ")", "INFO")
         log("    Purity: " .. purity .. "/2 | Score: " .. score, "INFO")
         
-        if purity >= CONFIG.min_purity and score >= CONFIG.min_score then
+        if STATE_selected_slots[i] then
+          log("    SKIP - Juz uzyta w tym cyklu", "SKIP")
+        elseif purity >= CONFIG.min_purity and score >= CONFIG.min_score then
           table.insert(candidates, {
             slot = i,
             label = label,
@@ -387,67 +374,42 @@ local function selectBee(bee_type, targetSpecies)
   log("WYBRANO: " .. best.species .. " (purity: " .. best.purity .. ", score: " .. best.score .. ")", "SELECT")
   log("", "SELECT")
   
+  STATE_selected_slots[best.slot] = true
   return best.slot
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 🐝 APIARY OPERATIONS
--- ═══════════════════════════════════════════════════════════════
+-- DRONE SELECTION & STORAGE
 
-local function cycleIsDone()
-  local apiary_size = t.getInventorySize(apiary) or 0
+local function selectAndStoreBestDrone()
+  log("Wybieranie najlepszego drona...", "ACTION")
   
-  for i = 1, apiary_size do
-    local stack = t.getStackInSlot(apiary, i)
-    
-    if stack and stack.label then
-      local l = stack.label:lower()
-      
-      if l:find("queen") or l:find("princess") then
-        return false
-      end
-    end
-  end
-  
-  return true
-end
-
-local function insertBees()
-  log("Wkiadanie pszczol do apairy...", "ACTION")
-  
-  local queen_slot = selectBee("PRINCESS") or selectBee("QUEEN")
   local drone_slot = selectBee("DRONE")
   
-  if not queen_slot or not drone_slot then
-    log("Brak dostepnych pszczol", "ERROR")
+  if not drone_slot then
+    log("Brak dostepnych dronow", "ERROR")
     return false
   end
   
-  local apiary_size = t.getInventorySize(apiary) or 0
-  local queen_slot_apiary, drone_slot_apiary
+  -- Znajdz wolny slot w skrzynce wyjsciowej
+  local free_slot = findFreeSlot(chest_out)
   
-  for i = 1, apiary_size do
-    if not t.getStackInSlot(apiary, i) then
-      if not queen_slot_apiary then
-        queen_slot_apiary = i
-      else
-        drone_slot_apiary = i
-        break
-      end
-    end
-  end
-  
-  if not queen_slot_apiary or not drone_slot_apiary then
-    log("Brak wolnych slotow w apairy", "ERROR")
+  if not free_slot then
+    log("Brak wolnych slotow w skrzynce wyjsciowej", "ERROR")
     return false
   end
   
-  transferAcrossChain(1, #CONFIG.chain, 1, queen_slot, queen_slot_apiary)
-  transferAcrossChain(1, #CONFIG.chain, 1, drone_slot, drone_slot_apiary)
+  -- Transfer drona ze skrzynki lewej na praw
+  local moved = safeTransfer(chest_in, chest_out, 1, drone_slot, free_slot)
   
-  log("Pszczoły wlozone do apairy", "SUCCESS")
-  STATE.cycle_count = STATE.cycle_count + 1
-  return true
+  if moved and moved > 0 then
+    STATE_selected_slots[drone_slot] = nil
+    log("Najlepszy dron umieszczony w skrzynce wyjsciowej (slot " .. free_slot .. ")", "SUCCESS")
+    STATE.cycle_count = STATE.cycle_count + 1
+    return true
+  else
+    log("Blad podczas transferu drona", "ERROR")
+    return false
+  end
 end
 
 local function collectProducts()
@@ -458,9 +420,8 @@ local function collectProducts()
     local stack = t.getStackInSlot(apiary, i)
     
     if stack and stack.label then
-      local l = stack.label:lower()
-      
-      if not (l:find("queen") or l:find("princess") or l:find("drone")) then
+      if not stack.individual then
+        local l = stack.label:lower()
         if l:find("comb") or l:find("honey") then
           local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
           if moved and moved > 0 then
@@ -486,20 +447,17 @@ local function extractBees()
   for i = 1, apiary_size do
     local stack = t.getStackInSlot(apiary, i)
     
-    if stack and stack.label then
-      local l = stack.label:lower()
-      
-      if l:find("queen") or l:find("princess") or l:find("drone") then
-        local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
-        if moved and moved > 0 then
-          extracted = extracted + moved
-          
-          if l:find("princess") then
-            STATE.queens_produced = STATE.queens_produced + 1
-          end
-          
-          log("Wyjeto: " .. stack.label .. " x" .. moved, "EXTRACT")
+    if stack and stack.individual then
+      local label = stack.label:lower()
+      local moved = transferAcrossChain(#CONFIG.chain, 1, stack.size, i)
+      if moved and moved > 0 then
+        extracted = extracted + moved
+        
+        if label:find("princess") then
+          STATE.queens_produced = STATE.queens_produced + 1
         end
+        
+        log("Wyjeto: " .. stack.label .. " x" .. moved, "EXTRACT")
       end
     end
   end
@@ -530,9 +488,7 @@ local function refillFrames()
   return refilled
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 📊 STATISTICS
--- ═══════════════════════════════════════════════════════════════
+-- STATISTICS
 
 local function printStats()
   local uptime = os.time() - STATE.start_time
@@ -551,9 +507,7 @@ local function printStats()
   log("", "STAT")
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 🎯 MAIN
--- ═══════════════════════════════════════════════════════════════
+-- MAIN
 
 local function main()
   log(string.rep("=", 60), "BANNER")
@@ -563,6 +517,8 @@ local function main()
   
   debugShowAllBees()
   
+  scanAllUnscannedBees()
+  
   log("Nacisni ENTER aby zaczac, lub Ctrl+C aby anulowac...", "PROMPT")
   io.read()
   
@@ -571,25 +527,10 @@ local function main()
     cycle = cycle + 1
     log("=== CYKL " .. cycle .. " ===", "CYCLE")
     
-    if insertBees() then
-      log("Czekanie " .. CONFIG.sleep_after_insert .. " sekund...", "WAIT")
-      os.sleep(CONFIG.sleep_after_insert)
-      
-      log("Czekanie na koniec cyklu...", "WAIT")
-      while not cycleIsDone() do
-        os.sleep(CONFIG.sleep_cycle_check)
-      end
-      os.sleep(2)
-      
-      collectProducts()
-      os.sleep(1)
-      
-      extractBees()
-      os.sleep(1)
-      
-      refillFrames()
+    if selectAndStoreBestDrone() then
+      STATE_selected_slots = {}
     else
-      log("Brak pszczol", "WARN")
+      log("Brak dronow do przechowywania", "WARN")
       os.sleep(30)
     end
     
@@ -602,9 +543,7 @@ local function main()
   end
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 🚀 START
--- ═══════════════════════════════════════════════════════════════
+-- START
 
 initLogFile()
 
