@@ -25,7 +25,7 @@ local CONFIG = {
     ["lifespan"] = 1,
     ["flowering"] = 1,
     ["flowerProvider"] = 1,
-    ["territory"] = 1,1
+    ["territory"] = 1,
     ["effect"] = 1,
   },
   
