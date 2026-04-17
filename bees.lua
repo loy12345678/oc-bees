@@ -676,167 +676,147 @@ end
 
 -- MAIN
 
-local function main(cycle_count)
-  log(string.rep("=", 60), "BANNER")
-  log("BEE BREEDER v3.0 - SINGLE RUN DIAGNOSTICS", "BANNER")
-  log(string.rep("=", 60), "BANNER")
-  log("", "BANNER")
+local function main()
+  log("========== PEŁNE PRZEJŚCIE MAIN ==========", "BANNER")
   
-  -- Pokaż diagnostykę wszystkich pszczół
-  debugShowAllBees()
+  -- Wybierz najlepszego drona
+  local drone_slot = selectBee("DRONE")
   
-  log("", "INFO")
-  log("Bedzie wykonywac cykl wyboru " .. cycle_count .. "x", "INFO")
-  log("", "INFO")
-  
-  -- Pętla wyboru dla każdej liczby cykli
-  for cycle = 1, cycle_count do
-    log("========== CYKL " .. cycle .. " / " .. cycle_count .. " ==========", "BANNER")
-    
-    -- Wybierz najlepszego drona
-    local drone_slot = selectBee("DRONE")
-    
-    if not drone_slot then
-      log("Brak dostepnych dronow - koniec", "ERROR")
-      break
-    end
-    
-    log("", "INFO")
-    
-    -- Wyświetl szczegóły drona
-    printBeeDetails(drone_slot, "[CYKL " .. cycle .. "] INFORMACJE DRONA (OJCIEC)")
-    
-    -- Ekstrahuj geny drona
-    local targetGenes = extractTargetGenesFromDrone(drone_slot)
-    
-    log("", "INFO")
-    
-    -- Wybierz najlepszą matkę na podstawie genów drona
-    local mother_slot = selectBestMother(targetGenes)
-    
-    if not mother_slot then
-      log("Brak dostepnych matek - koniec", "ERROR")
-      break
-    end
-    
-    log("", "INFO")
-    
-    -- Wyświetl szczegóły matki
-    printBeeDetails(mother_slot, "[CYKL " .. cycle .. "] INFORMACJE MATKI (PANI MATKA)")
-    
-    log("", "INFO")
-    log("[CYKL " .. cycle .. "] Przenoszenie pary hodowlanej do skrzynki wyjsciowej...", "ACTION")
-    
-    -- Pobierz dane pszczół PRZED jakimkolwiek transferem
-    local drone_stack = t.getStackInSlot(chest_in, drone_slot)
-    local mother_stack = t.getStackInSlot(chest_in, mother_slot)
-    
-    if not drone_stack then
-      log("Blad: Dron zniknął z slotu " .. drone_slot, "ERROR")
-      break
-    end
-    
-    if not mother_stack then
-      log("Blad: Matka zniknęła ze slotu " .. mother_slot, "ERROR")
-      break
-    end
-    
-    log("Dron label: " .. (drone_stack.label or "brak"), "DEBUG")
-    log("Matka label: " .. (mother_stack.label or "brak"), "DEBUG")
-    log("Dron size: " .. (drone_stack.size or 0) .. ", Matka size: " .. (mother_stack.size or 0), "DEBUG")
-    
-    -- Znajdź dwa wolne sloty
-    local free_slot_1 = findFreeSlot(chest_out)
-    if not free_slot_1 then
-      log("Blad: Brak wolnych slotow dla drona", "ERROR")
-      break
-    end
-    
-    local free_slot_2 = findFreeSlot(chest_out)
-    if not free_slot_2 then
-      log("Blad: Brak dwóch wolnych slotów (tylko jeden)", "ERROR")
-      break
-    end
-    
-    log("Sloty do transferu - Dron: " .. free_slot_1 .. ", Matka: " .. free_slot_2, "DEBUG")
-    
-    -- Transfer drona
-    log("Transferuję drona...", "ACTION")
-    local moved_drone = t.transferItem(chest_in, chest_out, 1, drone_slot, free_slot_1)
-    log("Dron transfer result: " .. tostring(moved_drone), "DEBUG")
-    
-    if moved_drone ~= 1 then
-      log("Blad: Transfer drona nie powiódł się (moved=" .. tostring(moved_drone) .. ")", "ERROR")
-      break
-    end
-    
-    log("✓ Dron przeniesiony", "SUCCESS")
-    
-    -- Sprawdzenie stanu po transferze drona
-    local mother_check_after_drone = t.getStackInSlot(chest_in, mother_slot)
-    log("STAN PO TRANSFERZE DRONA:", "DEBUG")
-    log("  Mother slot " .. mother_slot .. " zawiera: " .. tostring(mother_check_after_drone ~= nil), "DEBUG")
-    if mother_check_after_drone then
-      log("  Label: " .. (mother_check_after_drone.label or "brak"), "DEBUG")
-      log("  Size: " .. (mother_check_after_drone.size or 0), "DEBUG")
-    end
-    
-    -- Sprawdzenie całej chest_in po transferze drona
-    log("Transferuję matkę...", "ACTION")
-    
-    -- DEBUG: Sprawdź stan przed transferem matki
-    local mother_before_transfer = t.getStackInSlot(chest_in, mother_slot)
-    local target_slot_status = t.getStackInSlot(chest_out, free_slot_2)
-    
-    log("DEBUG - Przed transfer matki:", "DEBUG")
-    log("  Mother slot (" .. mother_slot .. ") zawiera: " .. tostring(mother_before_transfer ~= nil), "DEBUG")
-    if mother_before_transfer then
-      log("    Size: " .. (mother_before_transfer.size or 1) .. ", Label: " .. (mother_before_transfer.label or "brak"), "DEBUG")
-    end
-    log("  Target slot (" .. free_slot_2 .. ") w chest_out jest pusty: " .. tostring(target_slot_status == nil), "DEBUG")
-    
-    local moved_mother = t.transferItem(chest_in, chest_out, 1, mother_slot, free_slot_2)
-    log("Matka transfer result: " .. tostring(moved_mother), "DEBUG")
-    
-    if moved_mother ~= 1 then
-      log("Blad: Transfer matki nie powiódł się (moved=" .. tostring(moved_mother) .. ")", "ERROR")
-      
-      -- DEBUG: Sprawdź stan po nieudanym transferze
-      local mother_after_failed = t.getStackInSlot(chest_in, mother_slot)
-      local target_after_failed = t.getStackInSlot(chest_out, free_slot_2)
-      
-      log("DEBUG - Po nieudanym transferze:", "DEBUG")
-      log("  Mother wciąż w slot " .. mother_slot .. ": " .. tostring(mother_after_failed ~= nil), "DEBUG")
-      log("  Target slot " .. free_slot_2 .. " w chest_out: " .. tostring(target_after_failed ~= nil), "DEBUG")
-      
-      -- Spróbuj transfer bez toSlot
-      log("Próbuję transfer bez określania docelowego slotu...", "DEBUG")
-      local moved_mother_retry = t.transferItem(chest_in, chest_out, 1, mother_slot)
-      log("Retry result: " .. tostring(moved_mother_retry), "DEBUG")
-      
-      if moved_mother_retry ~= 1 then
-        log("Retry także nieudany! Może problem z samą pszczołą lub chest_out.", "ERROR")
-        break
-      end
-    end
-    
-    log("✓ Matka przeniesiona", "SUCCESS")
-    log("[CYKL " .. cycle .. "] Para hodowlana wybrana i przeniesiona", "SUCCESS")
-    log("", "INFO")
+  if not drone_slot then
+    log("Brak dostepnych dronow - koniec", "ERROR")
+    return false
   end
   
   log("", "INFO")
-  log(string.rep("=", 60), "SUCCESS")
-  log("CYKL ZAKOŃCZONY", "SUCCESS")
-  log(string.rep("=", 60), "SUCCESS")
-  log("", "SUCCESS")
+  
+  -- Wyświetl szczegóły drona
+  printBeeDetails(drone_slot, "INFORMACJE DRONA (OJCIEC)")
+  
+  -- Ekstrahuj geny drona
+  local targetGenes = extractTargetGenesFromDrone(drone_slot)
+  
+  log("", "INFO")
+  
+  -- Wybierz najlepszą matkę na podstawie genów drona
+  local mother_slot = selectBestMother(targetGenes)
+  
+  if not mother_slot then
+    log("Brak dostepnych matek - koniec", "ERROR")
+    return false
+  end
+  
+  log("", "INFO")
+  
+  -- Wyświetl szczegóły matki
+  printBeeDetails(mother_slot, "INFORMACJE MATKI (PANI MATKA)")
+  
+  log("", "INFO")
+  log("Przenoszenie pary hodowlanej do skrzynki wyjsciowej...", "ACTION")
+  
+  -- Pobierz dane pszczół PRZED jakimkolwiek transferem
+  local drone_stack = t.getStackInSlot(chest_in, drone_slot)
+  local mother_stack = t.getStackInSlot(chest_in, mother_slot)
+  
+  if not drone_stack then
+    log("Blad: Dron zniknął z slotu " .. drone_slot, "ERROR")
+    return false
+  end
+  
+  if not mother_stack then
+    log("Blad: Matka zniknęła ze slotu " .. mother_slot, "ERROR")
+    return false
+  end
+  
+  log("Dron label: " .. (drone_stack.label or "brak"), "DEBUG")
+  log("Matka label: " .. (mother_stack.label or "brak"), "DEBUG")
+  log("Dron size: " .. (drone_stack.size or 0) .. ", Matka size: " .. (mother_stack.size or 0), "DEBUG")
+  
+  -- Znajdź dwa wolne sloty
+  local free_slot_1 = findFreeSlot(chest_out)
+  if not free_slot_1 then
+    log("Blad: Brak wolnych slotow dla drona", "ERROR")
+    return false
+  end
+  
+  local free_slot_2 = findFreeSlot(chest_out)
+  if not free_slot_2 then
+    log("Blad: Brak dwóch wolnych slotów (tylko jeden)", "ERROR")
+    return false
+  end
+  
+  log("Sloty do transferu - Dron: " .. free_slot_1 .. ", Matka: " .. free_slot_2, "DEBUG")
+  
+  -- Transfer drona
+  log("Transferuję drona...", "ACTION")
+  local moved_drone = t.transferItem(chest_in, chest_out, 1, drone_slot, free_slot_1)
+  log("Dron transfer result: " .. tostring(moved_drone), "DEBUG")
+  
+  if moved_drone ~= 1 then
+    log("Blad: Transfer drona nie powiódł się (moved=" .. tostring(moved_drone) .. ")", "ERROR")
+    return false
+  end
+  
+  log("✓ Dron przeniesiony", "SUCCESS")
+  
+  -- Sprawdzenie stanu po transferze drona
+  local mother_check_after_drone = t.getStackInSlot(chest_in, mother_slot)
+  log("STAN PO TRANSFERZE DRONA:", "DEBUG")
+  log("  Mother slot " .. mother_slot .. " zawiera: " .. tostring(mother_check_after_drone ~= nil), "DEBUG")
+  if mother_check_after_drone then
+    log("  Label: " .. (mother_check_after_drone.label or "brak"), "DEBUG")
+    log("  Size: " .. (mother_check_after_drone.size or 0), "DEBUG")
+  end
+  
+  -- Sprawdzenie całej chest_in po transferze drona
+  log("Transferuję matkę...", "ACTION")
+  
+  -- DEBUG: Sprawdź stan przed transferem matki
+  local mother_before_transfer = t.getStackInSlot(chest_in, mother_slot)
+  local target_slot_status = t.getStackInSlot(chest_out, free_slot_2)
+  
+  log("DEBUG - Przed transfer matki:", "DEBUG")
+  log("  Mother slot (" .. mother_slot .. ") zawiera: " .. tostring(mother_before_transfer ~= nil), "DEBUG")
+  if mother_before_transfer then
+    log("    Size: " .. (mother_before_transfer.size or 1) .. ", Label: " .. (mother_before_transfer.label or "brak"), "DEBUG")
+  end
+  log("  Target slot (" .. free_slot_2 .. ") w chest_out jest pusty: " .. tostring(target_slot_status == nil), "DEBUG")
+  
+  local moved_mother = t.transferItem(chest_in, chest_out, 1, mother_slot, free_slot_2)
+  log("Matka transfer result: " .. tostring(moved_mother), "DEBUG")
+  
+  if moved_mother ~= 1 then
+    log("Blad: Transfer matki nie powiódł się (moved=" .. tostring(moved_mother) .. ")", "ERROR")
+    
+    -- DEBUG: Sprawdź stan po nieudanym transferze
+    local mother_after_failed = t.getStackInSlot(chest_in, mother_slot)
+    local target_after_failed = t.getStackInSlot(chest_out, free_slot_2)
+    
+    log("DEBUG - Po nieudanym transferze:", "DEBUG")
+    log("  Mother wciąż w slot " .. mother_slot .. ": " .. tostring(mother_after_failed ~= nil), "DEBUG")
+    log("  Target slot " .. free_slot_2 .. " w chest_out: " .. tostring(target_after_failed ~= nil), "DEBUG")
+    
+    -- Spróbuj transfer bez toSlot
+    log("Próbuję transfer bez określania docelowego slotu...", "DEBUG")
+    local moved_mother_retry = t.transferItem(chest_in, chest_out, 1, mother_slot)
+    log("Retry result: " .. tostring(moved_mother_retry), "DEBUG")
+    
+    if moved_mother_retry ~= 1 then
+      log("Retry także nieudany! Może problem z samą pszczołą lub chest_out.", "ERROR")
+      return false
+    end
+  end
+  
+  log("✓ Matka przeniesiona", "SUCCESS")
+  log("Para hodowlana wybrana i przeniesiona", "SUCCESS")
+  log("", "INFO")
+  
+  return true
 end
 
 -- START
 
 initLogFile()
 
--- Pytaj użytkownika ile cykli chce wykonać (TYLKO RAZ na początku)
 log(string.rep("=", 60), "BANNER")
 log("BEE BREEDER v3.0", "BANNER")
 log(string.rep("=", 60), "BANNER")
@@ -859,27 +839,53 @@ while true do
   local snapshot = getChestSnapshot()
   
   log("", "BANNER")
-  log("SNAPSHOT chest_in wykonany. Czekam na ENTER...", "BANNER")
+  log(string.rep("=", 60), "BANNER")
+  log("NOWE URUCHOMIENIE - " .. cycle_count .. " CYKLÓW", "BANNER")
+  log(string.rep("=", 60), "BANNER")
+  log("", "BANNER")
   
-  -- Uruchom główny proces z zdefiniowaną liczbą cykli
-  local ok, err = pcall(main, cycle_count)
-  if not ok then
-    log("FATAL ERROR: " .. tostring(err), "FATAL")
+  -- Pokaż diagnostykę wszystkich pszczół raz na początku
+  debugShowAllBees()
+  
+  -- Wykonaj cycle_count pełnych przejść main()
+  for cycle = 1, cycle_count do
+    log("", "BANNER")
+    log(string.rep("-", 60), "BANNER")
+    log("CYKL " .. cycle .. " / " .. cycle_count, "BANNER")
+    log(string.rep("-", 60), "BANNER")
+    log("", "BANNER")
+    
+    -- Wyczyść zaznaczenia z poprzedniego cyklu
+    STATE_selected_slots = {}
+    
+    -- Uruchom jedno pełne przejście
+    local ok, err = pcall(main)
+    if not ok then
+      log("FATAL ERROR W CYKLU " .. cycle .. ": " .. tostring(err), "FATAL")
+      break
+    end
+    
+    log("", "BANNER")
+    log("Cykl " .. cycle .. " UKOŃCZONY", "SUCCESS")
+    log("", "BANNER")
   end
   
-  -- Zaktualizuj snapshot PO transferze pszczół
+  -- Zaktualizuj snapshot PO wszystkich cyklach
   snapshot = getChestSnapshot()
   
   log("", "BANNER")
-  log("Snapshot zaktualizowany PO transferze. Czekam na zmiany w chest_in (Ctrl+C aby wyjść)...", "BANNER")
+  log("Wszystkie " .. cycle_count .. " cykli WYKONANE. Czekam na zmiany w chest_in (Ctrl+C aby wyjść)...", "BANNER")
+  log("", "BANNER")
   
   -- Sprawdzaj czy chest_in się zmienił
   while true do
     os.sleep(CONFIG.sleep_main_loop or 2)
     
     if hasChestChanged(snapshot) then
+      log("", "BANNER")
       log("ZMIANA WYKRYTA! Restart procesu...", "BANNER")
-      STATE_selected_slots = {}  -- Wyczyść poprzednie zaznaczenia
+      log("", "BANNER")
+      STATE_selected_slots = {}  -- Wyczyść zaznaczenia
       break
     end
   end
